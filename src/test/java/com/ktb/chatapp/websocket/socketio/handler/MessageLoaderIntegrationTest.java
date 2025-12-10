@@ -53,7 +53,7 @@ class MessageLoaderIntegrationTest {
     private Faker faker;
     private String roomId;
     private String userId;
-    
+
     @BeforeEach
     void setUp() {
         faker = new Faker();
@@ -63,7 +63,6 @@ class MessageLoaderIntegrationTest {
         // MessageLoader 인스턴스 생성
         messageLoader = new MessageLoader(
                 messageRepository,
-                userRepository,
                 new MessageResponseMapper(fileRepository),
                 messageReadStatusService
         );
@@ -91,7 +90,7 @@ class MessageLoaderIntegrationTest {
     void loadMessages_shouldLoadInPagesOf30ThenFinal10() {
         // Given: 100개의 메시지 생성
         List<Message> messages = IntStream.range(0, 100)
-                .mapToObj(i -> createAndSaveMessage())
+                .mapToObj(this::createAndSaveMessage)
                 .toList();
 
         // When & Then 1: 초기 30개 메시지 로드
@@ -149,7 +148,7 @@ class MessageLoaderIntegrationTest {
     void loadMessages_whenLessThan30Messages_hasMoreShouldBeFalse() {
         // Given: 20개의 메시지만 생성
         IntStream.range(0, 20)
-                .forEach(i -> createAndSaveMessage());
+                .forEach(this::createAndSaveMessage);
 
         // When: 초기 30개 요청
         FetchMessagesRequest request = new FetchMessagesRequest(roomId, 30, null);
@@ -163,13 +162,15 @@ class MessageLoaderIntegrationTest {
     @Test
     @DisplayName("before 파라미터가 모든 메시지보다 오래된 경우 빈 결과 반환")
     void loadMessages_whenBeforeIsOlderThanAllMessages_shouldReturnEmpty() {
-        // Given: 메시지 생성 (10시간 전부터 1시간 전까지)
+        // Given: 메시지 생성
         IntStream.range(0, 10)
-                .forEach(i -> createAndSaveMessage());
+                .forEach(this::createAndSaveMessage);
 
-        // When: 모든 메시지보다 오래된 시간으로 요청
+        // When: 아주 오래전 시간으로 요청 (현재 시간으로부터 100시간 전보다 더 이전)
+        // createAndSaveMessage 로직 상 가장 오래된 메시지는 (now - 100분) 정도임
         LocalDateTime veryOldTime = LocalDateTime.now().minusHours(100);
         Long beforeEpoch = veryOldTime.toEpochSecond(java.time.ZoneOffset.UTC);
+
         FetchMessagesRequest request = new FetchMessagesRequest(roomId, 30, beforeEpoch);
         FetchMessagesResponse response = messageLoader.loadMessages(request, userId);
 
@@ -178,12 +179,18 @@ class MessageLoaderIntegrationTest {
         assertThat(response.isHasMore()).isFalse();
     }
 
-    private Message createAndSaveMessage() {
+    //  인덱스(i)를 받아 메시지 간의 시간 간격을 둠 (테스트 안정성 확보)
+    private Message createAndSaveMessage(int i) {
         Message message = new Message();
         message.setRoomId(roomId);
         message.setSenderId(userId);
         message.setContent(faker.lorem().sentence(10));
-        message.setTimestamp(LocalDateTime.now());
+
+        // i가 0(가장 먼저 생성) -> 현재 시간 - 100분
+        // i가 99(가장 나중에 생성) -> 현재 시간 - 1분
+        // 이렇게 해야 DB 정렬 시 순서가 명확해짐
+        message.setTimestamp(LocalDateTime.now().minusMinutes(100 - i));
+
         message.setIsDeleted(false);
         return messageRepository.save(message);
     }
@@ -193,10 +200,10 @@ class MessageLoaderIntegrationTest {
                 .map(MessageResponse::getTimestamp)
                 .toList();
 
-        // 오름차순 정렬 확인 (오래된 것 → 최신 것)
+        // 운영 코드에서 reversed()를 사용하므로 결과는 오름차순(과거 -> 최신)이어야 함
         for (int i = 0; i < timestamps.size() - 1; i++) {
             assertThat(timestamps.get(i))
-                    .withFailMessage("메시지가 오름차순으로 정렬되지 않았습니다: index %d", i)
+                    .withFailMessage("메시지가 오름차순(과거->최신)으로 정렬되지 않았습니다: index %d", i)
                     .isLessThanOrEqualTo(timestamps.get(i + 1));
         }
     }

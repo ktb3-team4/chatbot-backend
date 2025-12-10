@@ -27,8 +27,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.ERROR;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -45,12 +47,21 @@ class ChatMessageHandlerTest {
     @Mock private SessionService sessionService;
     @Mock private BannedWordChecker bannedWordChecker;
     @Mock private RateLimitService rateLimitService;
+    @Mock private ThreadPoolTaskExecutor chatWorkerExecutor; // 추가된 Mock
+
     private MeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     private ChatMessageHandler handler;
 
     @BeforeEach
     void setUp() {
+        // 비동기 Executor가 작업을 받으면 즉시 실행하도록 Stubbing
+        doAnswer(invocation -> {
+            Runnable task = invocation.getArgument(0);
+            task.run();
+            return null;
+        }).when(chatWorkerExecutor).execute(any(Runnable.class));
+
         handler =
                 new ChatMessageHandler(
                         socketIOServer,
@@ -62,23 +73,28 @@ class ChatMessageHandlerTest {
                         sessionService,
                         bannedWordChecker,
                         rateLimitService,
-                        meterRegistry);
+                        meterRegistry,
+                        chatWorkerExecutor); // 생성자에 Mock Executor 주입
     }
 
     @Test
     void handleChatMessage_blocksMessagesContainingBannedWords() {
+        // Given
         SocketIOClient client = mock(SocketIOClient.class);
         SocketUser socketUser = new SocketUser("user-1", "tester", "session-1", "socket-1");
         when(client.get("user")).thenReturn(socketUser);
 
+        // Session Valid Mock
         SessionValidationResult validResult = SessionValidationResult.valid(null);
         when(sessionService.validateSession(socketUser.id(), socketUser.authSessionId()))
                 .thenReturn(validResult);
 
+        // Rate Limit Mock
         RateLimitCheckResult allowedResult = RateLimitCheckResult.allowed(10000, 9999, 60, System.currentTimeMillis() / 1000 + 60, 60);
         when(rateLimitService.checkRateLimit(eq(socketUser.id()), anyInt(), any()))
                 .thenReturn(allowedResult);
 
+        // User & Room Mock
         User user = new User();
         user.setId("user-1");
         when(userRepository.findById("user-1")).thenReturn(Optional.of(user));
@@ -88,6 +104,7 @@ class ChatMessageHandlerTest {
         room.setParticipantIds(new HashSet<>(java.util.List.of("user-1")));
         when(roomRepository.findById("room-1")).thenReturn(Optional.of(room));
 
+        // Request with Banned Word
         ChatMessageRequest request =
                 ChatMessageRequest.builder()
                         .room("room-1")
@@ -97,12 +114,21 @@ class ChatMessageHandlerTest {
 
         when(bannedWordChecker.containsBannedWord("bad word")).thenReturn(true);
 
+        // When
         handler.handleChatMessage(client, request);
 
+        // Then
+        // 1. Worker Executor가 호출되었는지 검증
+        verify(chatWorkerExecutor).execute(any(Runnable.class));
+
+        // 2. 금칙어 차단 메시지가 클라이언트로 전송되었는지 검증
         ArgumentCaptor<Map<String, String>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
         verify(client).sendEvent(eq(ERROR), payloadCaptor.capture());
+
         Map<String, String> payload = payloadCaptor.getValue();
-        org.junit.jupiter.api.Assertions.assertEquals("MESSAGE_REJECTED", payload.get("code"));
+        assertEquals("MESSAGE_REJECTED", payload.get("code"));
+
+        // 3. 메시지가 저장되지 않았는지 검증
         verifyNoInteractions(messageRepository);
         verify(socketIOServer, never()).getRoomOperations(any());
     }

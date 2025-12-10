@@ -4,7 +4,6 @@ import com.ktb.chatapp.dto.FileResponse;
 import com.ktb.chatapp.dto.MessageResponse;
 import com.ktb.chatapp.dto.UserResponse;
 import com.ktb.chatapp.model.Message;
-import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.FileRepository;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,10 +12,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-/**
- * 메시지를 응답 DTO로 변환하는 매퍼
- * 파일 정보, 사용자 정보 등을 포함한 MessageResponse 생성
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -26,12 +21,9 @@ public class MessageResponseMapper {
 
     /**
      * Message 엔티티를 MessageResponse DTO로 변환
-     *
-     * @param message 변환할 메시지 엔티티
-     * @param sender 메시지 발신자 정보 (null 가능)
-     * @return MessageResponse DTO
+     * 별도의 User 조회 없이 Message 내의 임베딩 정보를 사용
      */
-    public MessageResponse mapToMessageResponse(Message message, User sender) {
+    public MessageResponse mapToMessageResponse(Message message) {
         MessageResponse.MessageResponseBuilder builder = MessageResponse.builder()
                 .id(message.getId())
                 .content(message.getContent())
@@ -43,29 +35,31 @@ public class MessageResponseMapper {
                 .readers(message.getReaders() != null ?
                         message.getReaders() : new ArrayList<>());
 
-        // 발신자 정보 설정
-        if (sender != null) {
+        // 임베딩된 정보로 Sender 설정
+        if (message.getSenderId() != null) {
             builder.sender(UserResponse.builder()
-                    .id(sender.getId())
-                    .name(sender.getName())
-                    .email(sender.getEmail())
-                    .profileImage(sender.getProfileImage())
+                    .id(message.getSenderId())
+                    .name(message.getSenderName() != null ? message.getSenderName() : "알 수 없음")
+                    .email("")
+                    .profileImage(message.getSenderProfileImage() != null ? message.getSenderProfileImage() : "")
+                    .build());
+        }
+
+        // AI 메시지인 경우 처리
+        if (message.getType() == com.ktb.chatapp.model.MessageType.ai && message.getAiType() != null) {
+            builder.sender(UserResponse.builder()
+                    .id("AI")
+                    .name(message.getAiType().getName())
+                    .profileImage("") // AI 전용 이미지 URL이 있다면 여기에 설정
                     .build());
         }
 
         // 파일 정보 설정
         Optional.ofNullable(message.getFileId())
                 .flatMap(fileRepository::findById)
-                .map(file -> FileResponse.builder()
-                        .id(file.getId())
-                        .filename(file.getFilename())
-                        .originalname(file.getOriginalname())
-                        .mimetype(file.getMimetype())
-                        .size(file.getSize())
-                        .build())
+                .map(FileResponse::from)
                 .ifPresent(builder::file);
 
-        // 메타데이터 설정
         if (message.getMetadata() != null) {
             builder.metadata(message.getMetadata());
         }

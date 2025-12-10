@@ -17,8 +17,10 @@ import com.ktb.chatapp.websocket.socketio.UserRooms;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List; // List 임포트 추가
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set; // Set 임포트 추가
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -42,7 +44,7 @@ public class RoomLeaveHandler {
     private final UserRepository userRepository;
     private final UserRooms userRooms;
     private final MessageResponseMapper messageResponseMapper;
-    
+
     @OnEvent(LEAVE_ROOM)
     public void handleLeaveRoom(SocketIOClient client, String roomId) {
         try {
@@ -61,21 +63,21 @@ public class RoomLeaveHandler {
 
             User user = userRepository.findById(userId).orElse(null);
             Room room = roomRepository.findById(roomId).orElse(null);
-            
+
             if (user == null || room == null) {
                 log.warn("Room {} not found or user {} has no access", roomId, userId);
                 return;
             }
-            
+
             roomRepository.removeParticipant(roomId, userId);
-            
+
             client.leaveRoom(roomId);
             userRooms.remove(userId, roomId);
-            
+
             log.info("User {} left room {}", userName, room.getName());
-            
+
             log.debug("Leave room cleanup - roomId: {}, userId: {}", roomId, userId);
-            
+
             sendSystemMessage(roomId, userName + "님이 퇴장하였습니다.");
             broadcastParticipantList(roomId);
             socketIOServer.getRoomOperations(roomId)
@@ -83,13 +85,13 @@ public class RoomLeaveHandler {
                             "userId", userId,
                             "userName", userName
                     ));
-            
+
         } catch (Exception e) {
             log.error("Error handling leaveRoom", e);
             client.sendEvent(ERROR, Map.of("message", "채팅방 퇴장 중 오류가 발생했습니다."));
         }
     }
-    
+
     private void sendSystemMessage(String roomId, String content) {
         try {
             Message systemMessage = new Message();
@@ -103,8 +105,12 @@ public class RoomLeaveHandler {
             systemMessage.setReaders(new ArrayList<>());
             systemMessage.setMetadata(new HashMap<>());
 
+            // 시스템 메시지는 sender 정보가 없으므로 임베딩 필드는 null로 둡니다.
+
             Message savedMessage = messageRepository.save(systemMessage);
-            MessageResponse response = messageResponseMapper.mapToMessageResponse(savedMessage, null);
+
+            // [수정] 매퍼 시그니처 변경 반영 (User 인자 제거)
+            MessageResponse response = messageResponseMapper.mapToMessageResponse(savedMessage);
 
             socketIOServer.getRoomOperations(roomId)
                     .sendEvent(MESSAGE, response);
@@ -113,26 +119,28 @@ public class RoomLeaveHandler {
             log.error("Error sending system message", e);
         }
     }
-    
+
     private void broadcastParticipantList(String roomId) {
         Optional<Room> roomOpt = roomRepository.findById(roomId);
         if (roomOpt.isEmpty()) {
             return;
         }
-        
-        var participantList = roomOpt.get()
-                .getParticipantIds()
+
+        Set<String> participantIds = roomOpt.get().getParticipantIds();
+        if (participantIds == null || participantIds.isEmpty()) {
+            return;
+        }
+
+        // [최적화] findAllById를 사용하여 N+1 쿼리 문제 해결
+        List<UserResponse> participantList = userRepository.findAllById(participantIds)
                 .stream()
-                .map(userRepository::findById)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
                 .map(UserResponse::from)
                 .toList();
-        
+
         if (participantList.isEmpty()) {
             return;
         }
-        
+
         socketIOServer.getRoomOperations(roomId)
                 .sendEvent(PARTICIPANTS_UPDATE, participantList);
     }

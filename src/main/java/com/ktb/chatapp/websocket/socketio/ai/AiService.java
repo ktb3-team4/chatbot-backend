@@ -120,15 +120,21 @@ public class AiService {
                 event.getMessageId(), event.getRoomId(), e);
         }
     }
-    
+
     private Message getMessage(AiMessageCompleteEvent event) {
         Message aiMessage = new Message();
         aiMessage.setRoomId(event.getRoomId());
         aiMessage.setContent(event.getContent());
         aiMessage.setType(MessageType.ai);
         aiMessage.setAiType(event.getAiType());
+
+        aiMessage.setSenderId("AI");
+        if (event.getAiType() != null) {
+            aiMessage.setSenderName(event.getAiType().getName());
+        }
+
         aiMessage.setTimestamp(event.getStartDateTime());
-        
+
         Map<String, Object> metadata = Map.of(
                 "query", event.getQuery(),
                 "generationTime", event.getGenerationTime()

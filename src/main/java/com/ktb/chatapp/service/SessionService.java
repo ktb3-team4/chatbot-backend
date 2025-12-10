@@ -121,6 +121,11 @@ public class SessionService {
                 return;
             }
 
+            long now = Instant.now().toEpochMilli();
+            if (now - session.getLastActivity() < 60000) {
+                return;
+            }
+
             session.setLastActivity(Instant.now().toEpochMilli());
             session.setExpiresAt(Instant.now().plusSeconds(SESSION_TTL_SEC));
             sessionStore.save(session);
