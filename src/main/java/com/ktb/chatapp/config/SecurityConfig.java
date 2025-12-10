@@ -32,7 +32,7 @@ public class SecurityConfig {
 
     private static final List<String> CORS_ALLOWED_ORIGINS = List.of(
             "http://localhost:3000",
-            "http://3.36.57.151:3000"
+            "https://chat.goorm-ktb-004.goorm.team"
     );
 
     private static final List<String> CORS_ALLOWED_HEADERS = List.of(
