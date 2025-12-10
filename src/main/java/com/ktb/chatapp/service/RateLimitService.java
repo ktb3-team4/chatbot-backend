@@ -1,91 +1,50 @@
 package com.ktb.chatapp.service;
 
-import io.github.bucket4j.Bandwidth;
-import io.github.bucket4j.Bucket;
-import io.github.bucket4j.ConsumptionProbe;
-import io.github.bucket4j.Refill;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.redisson.api.RRateLimiter;
+import org.redisson.api.RateIntervalUnit;
+import org.redisson.api.RateType;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-
-import static java.net.InetAddress.getLocalHost;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RateLimitService {
 
-    private final Map<String, Bucket> localCache = new ConcurrentHashMap<>();
+    private final RedissonClient redissonClient;
 
-    @Value("${HOSTNAME:''}")
-    private String hostName;
+    public RateLimitCheckResult checkRateLimit(String clientId, int maxRequests, Duration window) {
+        String key = "limiter:" + clientId;
 
-    @PostConstruct
-    public void init() {
-        if (!hostName.isEmpty()) {
-            return;
-        }
-        hostName = generateHostname();
-    }
+        RRateLimiter limiter = redissonClient.getRateLimiter(key);
 
-    private String generateHostname() {
-        try {
-            return getLocalHost().getHostName();
-        } catch (Exception e) {
-            return "unknown-" + java.util.UUID.randomUUID().toString().substring(0, 8);
-        }
-    }
+        limiter.trySetRate(RateType.OVERALL, maxRequests, window.getSeconds(), RateIntervalUnit.SECONDS);
 
-    public RateLimitCheckResult checkRateLimit(String _clientId, int maxRequests, Duration window) {
-        String actualClientId = hostName + ":" + _clientId;
-        long windowSeconds = Math.max(1L, window.getSeconds());
-        long nowEpochSeconds = Instant.now().getEpochSecond();
+        limiter.expire(window.multipliedBy(2));
 
-        Bucket bucket = localCache.computeIfAbsent(actualClientId, k -> createNewBucket(maxRequests, window));
+        boolean allowed = limiter.tryAcquire(1);
 
-        ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
-
-        if (probe.isConsumed()) {
-            long remainingTokens = probe.getRemainingTokens();
-
-            long resetEpochSeconds = nowEpochSeconds + windowSeconds;
+        if (allowed) {
+            long remaining = limiter.availablePermits();
 
             return RateLimitCheckResult.allowed(
                     maxRequests,
-                    (int) remainingTokens,
-                    windowSeconds,
-                    resetEpochSeconds,
+                    (int) remaining,
+                    window.getSeconds(),
+                    0,
                     0
             );
         } else {
-            long nanosToWaitForRefill = probe.getNanosToWaitForRefill();
-            long retryAfterSeconds = TimeUnit.NANOSECONDS.toSeconds(nanosToWaitForRefill);
-            retryAfterSeconds = Math.max(1L, retryAfterSeconds);
-
-            long resetEpochSeconds = nowEpochSeconds + retryAfterSeconds;
-
             return RateLimitCheckResult.rejected(
                     maxRequests,
-                    windowSeconds,
-                    resetEpochSeconds,
-                    retryAfterSeconds
+                    window.getSeconds(),
+                    0,
+                    1
             );
         }
-    }
-
-    // 새 버킷 생성 메서드
-    private Bucket createNewBucket(int maxRequests, Duration window) {
-        Bandwidth limit = Bandwidth.classic(maxRequests, Refill.intervally(maxRequests, window));
-        return Bucket.builder()
-                .addLimit(limit)
-                .build();
     }
 }
