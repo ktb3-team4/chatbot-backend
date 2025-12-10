@@ -13,13 +13,12 @@ on:
       - feat/env
 
 jobs:
-  # 1. 빌드 및 Docker 이미지 푸시
   build-and-push:
     runs-on: ubuntu-latest
     
     defaults:
       run:
-        working-directory: ./chatbot-backend # Gradle/Docker 명령어를 './chatbot-backend' 폴더 기준에서 실행
+        working-directory: ./chatbot-backend
 
     steps:
     - name: Checkout Code
@@ -48,13 +47,13 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: . # 현재 working-directory 기준
-        file: Dockerfile # 현재 working-directory 기준
+        file: ../../Dockerfile   # 현재 working-directory 기준
         push: true
         tags: ${{ secrets.DOCKER_USERNAME }}/backend:latest
         
   # 2. 서버 배포 (CD)
   deploy:
-    needs: build-and-push # Job 이름 변경
+    needs: build-and-push
     runs-on: ubuntu-latest
     steps:
     - name: EC2 접속 및 배포
