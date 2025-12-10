@@ -3,6 +3,7 @@ package com.ktb.chatapp.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.module.blackbird.BlackbirdModule;
 import com.ktb.chatapp.model.Session;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
@@ -40,6 +41,7 @@ public class RedisConfig {
         template.setConnectionFactory(connectionFactory);
 
         ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new BlackbirdModule());
         objectMapper.registerModule(new JavaTimeModule());
         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 

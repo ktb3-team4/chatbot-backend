@@ -7,6 +7,7 @@ import com.corundumstudio.socketio.annotation.SpringAnnotationScanner;
 import com.corundumstudio.socketio.namespace.Namespace;
 import com.corundumstudio.socketio.protocol.JacksonJsonSupport;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.module.blackbird.BlackbirdModule;
 import com.ktb.chatapp.websocket.socketio.ChatDataStore;
 import com.ktb.chatapp.websocket.socketio.LocalChatDataStore;
 import com.ktb.chatapp.websocket.socketio.store.RedissonStoreFactory; // 새로 만든 클래스 임포트
@@ -57,6 +58,7 @@ public class SocketIOConfig {
 
         config.setMaxFramePayloadLength(1024 * 1024);
         config.setMaxHttpContentLength(1024 * 1024);
+        config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule(), new BlackbirdModule()));
 
         config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
 
