@@ -50,6 +50,12 @@ public class Message {
     @Field("sender")
     private String senderId;
 
+    @Field("senderName")
+    private String senderName;
+
+    @Field("senderProfileImage")
+    private String senderProfileImage;
+
     private MessageType type;
 
     // Mongo 문서 필드명 "file" 사용

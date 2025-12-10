@@ -125,7 +125,7 @@ public class RoomJoinHandler {
 
             // 입장 메시지 브로드캐스트
             socketIOServer.getRoomOperations(roomId)
-                .sendEvent(MESSAGE, messageResponseMapper.mapToMessageResponse(joinMessage, null));
+                .sendEvent(MESSAGE, messageResponseMapper.mapToMessageResponse(joinMessage));
 
             // 참가자 목록 업데이트 브로드캐스트
             socketIOServer.getRoomOperations(roomId)

@@ -53,7 +53,7 @@ public class ChatMessageHandler {
 
     @Qualifier("chatWorkerExecutor")
     private final ThreadPoolTaskExecutor chatWorkerExecutor;
-    
+
     @OnEvent(CHAT_MESSAGE)
     public void handleChatMessage(SocketIOClient client, ChatMessageRequest data) {
 
@@ -95,6 +95,7 @@ public class ChatMessageHandler {
                 return;
             }
 
+            // [수정] sender 정보를 조회하여 이후 로직에 활용 (임베딩을 위해)
             User sender = userRepository.findById(socketUser.id()).orElse(null);
             if (sender == null) {
                 recordError("user_not_found");
@@ -122,8 +123,8 @@ public class ChatMessageHandler {
 
             String messageType = data.getMessageType();
             Message message = switch (messageType) {
-                case "file" -> handleFileMessage(roomId, socketUser.id(), messageContent, data.getFileData());
-                case "text" -> handleTextMessage(roomId, socketUser.id(), messageContent);
+                case "file" -> handleFileMessage(roomId, sender, messageContent, data.getFileData());
+                case "text" -> handleTextMessage(roomId, sender, messageContent);
                 default -> throw new IllegalArgumentException("Unsupported message type: " + messageType);
             };
 
@@ -152,7 +153,8 @@ public class ChatMessageHandler {
         }
     }
 
-    private Message handleFileMessage(String roomId, String userId, MessageContent messageContent, Map<String, Object> fileData) {
+    // sender 객체를 받아 임베딩 필드 설정
+    private Message handleFileMessage(String roomId, User sender, MessageContent messageContent, Map<String, Object> fileData) {
         if (fileData == null || fileData.get("_id") == null) {
             throw new IllegalArgumentException("파일 데이터가 올바르지 않습니다.");
         }
@@ -160,20 +162,24 @@ public class ChatMessageHandler {
         String fileId = (String) fileData.get("_id");
         File file = fileRepository.findById(fileId).orElse(null);
 
-        if (file == null || !file.getUser().equals(userId)) {
+        if (file == null || !file.getUser().equals(sender.getId())) {
             throw new IllegalStateException("파일을 찾을 수 없거나 접근 권한이 없습니다.");
         }
 
         Message message = new Message();
         message.setRoomId(roomId);
-        message.setSenderId(userId);
+
+        // Sender 정보 임베딩
+        message.setSenderId(sender.getId());
+        message.setSenderName(sender.getName());
+        message.setSenderProfileImage(sender.getProfileImage());
+
         message.setType(MessageType.file);
         message.setFileId(fileId);
         message.setContent(messageContent.getTrimmedContent());
         message.setTimestamp(LocalDateTime.now());
         message.setMentions(messageContent.aiMentions());
-        
-        // 메타데이터는 Map<String, Object>
+
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("fileType", file.getMimetype());
         metadata.put("fileSize", file.getSize());
@@ -183,14 +189,18 @@ public class ChatMessageHandler {
         return message;
     }
 
-    private Message handleTextMessage(String roomId, String userId, MessageContent messageContent) {
+    private Message handleTextMessage(String roomId, User sender, MessageContent messageContent) {
         if (messageContent.isEmpty()) {
             return null; // 빈 메시지는 무시
         }
 
         Message message = new Message();
         message.setRoomId(roomId);
-        message.setSenderId(userId);
+
+        message.setSenderId(sender.getId());
+        message.setSenderName(sender.getName());
+        message.setSenderProfileImage(sender.getProfileImage());
+
         message.setContent(messageContent.getTrimmedContent());
         message.setType(MessageType.text);
         message.setTimestamp(LocalDateTime.now());
