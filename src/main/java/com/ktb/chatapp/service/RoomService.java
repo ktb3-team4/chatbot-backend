@@ -8,20 +8,24 @@ import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -34,11 +38,21 @@ public class RoomService {
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
 
+    /**
+     * 채팅방 목록 조회 (캐싱 + 개인화 적용)
+     * 1. 캐시된 공통 데이터(Generic Data)를 조회
+     * 2. 현재 사용자에 맞게 isCreator 필드를 계산하여 반환
+     */
     public RoomsResponse getAllRoomsWithPagination(
-            com.ktb.chatapp.dto.PageRequest pageRequest, String name) {
+            com.ktb.chatapp.dto.PageRequest pageRequest, String userEmail) {
 
         try {
-            // 정렬 설정 검증
+            // 현재 사용자 정보 조회 (isCreator 계산을 위해 ID 필요)
+            User currentUser = userRepository.findByEmail(userEmail)
+                    .orElseThrow(() -> new RuntimeException("User not found: " + userEmail));
+            String currentUserId = currentUser.getId();
+
+            // 정렬 설정
             if (!pageRequest.isValidSortField()) {
                 pageRequest.setSortField("createdAt");
             }
@@ -46,77 +60,107 @@ public class RoomService {
                 pageRequest.setSortOrder("desc");
             }
 
-            // 정렬 방향 설정
             Sort.Direction direction = "desc".equals(pageRequest.getSortOrder())
-                ? Sort.Direction.DESC
-                : Sort.Direction.ASC;
+                    ? Sort.Direction.DESC
+                    : Sort.Direction.ASC;
 
-            // 정렬 필드 매핑 (participantsCount는 특별 처리 필요)
             String sortField = pageRequest.getSortField();
             if ("participantsCount".equals(sortField)) {
-                sortField = "participantIds"; // MongoDB 필드명으로 변경
+                sortField = "participantIds";
             }
 
-            // Pageable 객체 생성
             PageRequest springPageRequest = PageRequest.of(
-                pageRequest.getPage(),
-                pageRequest.getPageSize(),
-                Sort.by(direction, sortField)
+                    pageRequest.getPage(),
+                    pageRequest.getPageSize(),
+                    Sort.by(direction, sortField)
             );
 
-            // 검색어가 있는 경우와 없는 경우 분리
-            Page<Room> roomPage;
-            if (pageRequest.getSearch() != null && !pageRequest.getSearch().trim().isEmpty()) {
-                roomPage = roomRepository.findByNameContainingIgnoreCase(
-                    pageRequest.getSearch().trim(), springPageRequest);
+            // 데이터 조회
+            RoomsResponse response;
+            boolean isCacheable = pageRequest.getPage() == 0 &&
+                    (pageRequest.getSearch() == null || pageRequest.getSearch().trim().isEmpty());
+
+            if (isCacheable) {
+                // 캐시된 메서드 호출
+                response = getCachedDefaultRooms(springPageRequest);
             } else {
-                roomPage = roomRepository.findAll(springPageRequest);
+                // 직접 조회
+                response = getRoomsGeneric(springPageRequest, pageRequest.getSearch());
             }
 
-            // Room을 RoomResponse로 변환
-            List<RoomResponse> roomResponses = roomPage.getContent().stream()
-                .map(room -> mapToRoomResponse(room, name))
-                .collect(Collectors.toList());
-
-            // 메타데이터 생성
-            PageMetadata metadata = PageMetadata.builder()
-                .total(roomPage.getTotalElements())
-                .page(pageRequest.getPage())
-                .pageSize(pageRequest.getPageSize())
-                .totalPages(roomPage.getTotalPages())
-                .hasMore(roomPage.hasNext())
-                .currentCount(roomResponses.size())
-                .sort(PageMetadata.SortInfo.builder()
-                    .field(pageRequest.getSortField())
-                    .order(pageRequest.getSortOrder())
-                    .build())
-                .build();
+            // 사용자별 isCreator 값 업데이트
+            List<RoomResponse> personalizedData = response.getData().stream()
+                    .map(room -> personalizeRoomResponse(room, currentUserId))
+                    .collect(Collectors.toList());
 
             return RoomsResponse.builder()
-                .success(true)
-                .data(roomResponses)
-                .metadata(metadata)
-                .build();
+                    .success(response.isSuccess())
+                    .data(personalizedData)
+                    .metadata(response.getMetadata())
+                    .build();
 
         } catch (Exception e) {
             log.error("방 목록 조회 에러", e);
             return RoomsResponse.builder()
-                .success(false)
-                .data(List.of())
-                .build();
+                    .success(false)
+                    .data(List.of())
+                    .build();
         }
     }
 
+    /**
+     * 캐시 메서드: 공통 데이터 조회
+     * - isCreator는 항상 false로 저장됨
+     * - 키: 'default' (모든 유저가 공유)
+     */
+    @Cacheable(value = "rooms", key = "'default'")
+    public RoomsResponse getCachedDefaultRooms(org.springframework.data.domain.Pageable pageable) {
+        return getRoomsGeneric(pageable, null);
+    }
+
+    /**
+     * 실제 DB 조회 및 Generic 매핑
+     */
+    private RoomsResponse getRoomsGeneric(org.springframework.data.domain.Pageable pageable, String search) {
+        Page<Room> roomPage;
+        if (search != null && !search.trim().isEmpty()) {
+            roomPage = roomRepository.findByNameContainingIgnoreCase(search.trim(), pageable);
+        } else {
+            roomPage = roomRepository.findAll(pageable);
+        }
+
+        List<RoomResponse> roomResponses = roomPage.getContent().stream()
+                .map(this::mapToGenericRoomResponse) // 사용자 구분 없이 매핑
+                .collect(Collectors.toList());
+
+        PageMetadata metadata = PageMetadata.builder()
+                .total(roomPage.getTotalElements())
+                .page(pageable.getPageNumber())
+                .pageSize(pageable.getPageSize())
+                .totalPages(roomPage.getTotalPages())
+                .hasMore(roomPage.hasNext())
+                .currentCount(roomResponses.size())
+                .sort(PageMetadata.SortInfo.builder()
+                        .field(pageable.getSort().stream().findFirst().map(Sort.Order::getProperty).orElse("createdAt"))
+                        .order(pageable.getSort().stream().findFirst().map(o -> o.getDirection().name().toLowerCase()).orElse("desc"))
+                        .build())
+                .build();
+
+        return RoomsResponse.builder()
+                .success(true)
+                .data(roomResponses)
+                .metadata(metadata)
+                .build();
+    }
+
+    // Health Check
     public HealthResponse getHealthStatus() {
         try {
             long startTime = System.currentTimeMillis();
-
-            // MongoDB 연결 상태 확인
             boolean isMongoConnected = false;
             long latency = 0;
 
             try {
-                // 간단한 쿼리로 연결 상태 및 지연 시간 측정
                 roomRepository.findOneForHealthCheck();
                 long endTime = System.currentTimeMillis();
                 latency = endTime - startTime;
@@ -126,36 +170,35 @@ public class RoomService {
                 isMongoConnected = false;
             }
 
-            // 최근 활동 조회
             LocalDateTime lastActivity = roomRepository.findMostRecentRoom()
                     .map(Room::getCreatedAt)
                     .orElse(null);
 
-            // 서비스 상태 정보 구성
             Map<String, HealthResponse.ServiceHealth> services = new HashMap<>();
             services.put("database", HealthResponse.ServiceHealth.builder()
-                .connected(isMongoConnected)
-                .latency(latency)
-                .build());
+                    .connected(isMongoConnected)
+                    .latency(latency)
+                    .build());
 
             return HealthResponse.builder()
-                .success(true)
-                .services(services)
-                .lastActivity(lastActivity)
-                .build();
+                    .success(true)
+                    .services(services)
+                    .lastActivity(lastActivity)
+                    .build();
 
         } catch (Exception e) {
             log.error("Health check 실행 중 에러 발생", e);
             return HealthResponse.builder()
-                .success(false)
-                .services(new HashMap<>())
-                .build();
+                    .success(false)
+                    .services(new HashMap<>())
+                    .build();
         }
     }
 
+    @CacheEvict(value = "rooms", key = "'default'")
     public Room createRoom(CreateRoomRequest createRoomRequest, String name) {
         User creator = userRepository.findByEmail(name)
-            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + name));
+                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + name));
 
         Room room = new Room();
         room.setName(createRoomRequest.getName().trim());
@@ -168,22 +211,27 @@ public class RoomService {
         }
 
         Room savedRoom = roomRepository.save(room);
-        
-        // Publish event for room created
+
         try {
-            RoomResponse roomResponse = mapToRoomResponse(savedRoom, name);
+            // 이벤트 발행 시에는 Generic 정보를 보냄
+            RoomResponse roomResponse = mapToGenericRoomResponse(savedRoom);
             eventPublisher.publishEvent(new RoomCreatedEvent(this, roomResponse));
         } catch (Exception e) {
             log.error("roomCreated 이벤트 발행 실패", e);
         }
-        
+
         return savedRoom;
     }
 
+    @Cacheable(value = "room", key = "#roomId")
     public Optional<Room> findRoomById(String roomId) {
         return roomRepository.findById(roomId);
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "room", key = "#roomId"),
+            @CacheEvict(value = "rooms", key = "'default'")
+    })
     public Room joinRoom(String roomId, String password, String name) {
         Optional<Room> roomOpt = roomRepository.findById(roomId);
         if (roomOpt.isEmpty()) {
@@ -192,25 +240,21 @@ public class RoomService {
 
         Room room = roomOpt.get();
         User user = userRepository.findByEmail(name)
-            .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + name));
+                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + name));
 
-        // 비밀번호 확인
         if (room.isHasPassword()) {
             if (password == null || !passwordEncoder.matches(password, room.getPassword())) {
                 throw new RuntimeException("비밀번호가 일치하지 않습니다.");
             }
         }
 
-        // 이미 참여중인지 확인
         if (!room.getParticipantIds().contains(user.getId())) {
-            // 채팅방 참여
             room.getParticipantIds().add(user.getId());
             room = roomRepository.save(room);
         }
-        
-        // Publish event for room updated
+
         try {
-            RoomResponse roomResponse = mapToRoomResponse(room, name);
+            RoomResponse roomResponse = mapToGenericRoomResponse(room);
             eventPublisher.publishEvent(new RoomUpdatedEvent(this, roomId, roomResponse));
         } catch (Exception e) {
             log.error("roomUpdate 이벤트 발행 실패", e);
@@ -219,7 +263,8 @@ public class RoomService {
         return room;
     }
 
-    private RoomResponse mapToRoomResponse(Room room, String name) {
+    // Generic 매핑: 특정 사용자에게 종속되지 않은 순수 방 정보 (isCreator = false)
+    private RoomResponse mapToGenericRoomResponse(Room room) {
         if (room == null) return null;
 
         User creator = null;
@@ -228,35 +273,50 @@ public class RoomService {
         }
 
         List<User> participants = room.getParticipantIds().stream()
-            .map(userRepository::findById)
-            .filter(Optional::isPresent)
-            .map(Optional::get)
-            .toList();
+                .map(userRepository::findById)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .toList();
 
-        // 최근 10분간 메시지 수 조회
         LocalDateTime tenMinutesAgo = LocalDateTime.now().minusMinutes(10);
         long recentMessageCount = messageRepository.countRecentMessagesByRoomId(room.getId(), tenMinutesAgo);
 
         return RoomResponse.builder()
-            .id(room.getId())
-            .name(room.getName() != null ? room.getName() : "제목 없음")
-            .hasPassword(room.isHasPassword())
-            .creator(creator != null ? UserResponse.builder()
-                .id(creator.getId())
-                .name(creator.getName() != null ? creator.getName() : "알 수 없음")
-                .email(creator.getEmail() != null ? creator.getEmail() : "")
-                .build() : null)
-            .participants(participants.stream()
-                .filter(p -> p != null && p.getId() != null)
-                .map(p -> UserResponse.builder()
-                    .id(p.getId())
-                    .name(p.getName() != null ? p.getName() : "알 수 없음")
-                    .email(p.getEmail() != null ? p.getEmail() : "")
-                    .build())
-                .collect(Collectors.toList()))
-            .createdAtDateTime(room.getCreatedAt())
-            .isCreator(creator != null && creator.getId().equals(name))
-            .recentMessageCount((int) recentMessageCount)
-            .build();
+                .id(room.getId())
+                .name(room.getName() != null ? room.getName() : "제목 없음")
+                .hasPassword(room.isHasPassword())
+                .creator(creator != null ? UserResponse.builder()
+                        .id(creator.getId())
+                        .name(creator.getName() != null ? creator.getName() : "알 수 없음")
+                        .email(creator.getEmail() != null ? creator.getEmail() : "")
+                        .build() : null)
+                .participants(participants.stream()
+                        .filter(p -> p != null && p.getId() != null)
+                        .map(p -> UserResponse.builder()
+                                .id(p.getId())
+                                .name(p.getName() != null ? p.getName() : "알 수 없음")
+                                .email(p.getEmail() != null ? p.getEmail() : "")
+                                .build())
+                        .collect(Collectors.toList()))
+                .createdAtDateTime(room.getCreatedAt())
+                .isCreator(false)
+                .recentMessageCount((int) recentMessageCount)
+                .build();
+    }
+
+    // 개인화 매핑: Generic 응답에 현재 사용자 기준 isCreator 주입
+    private RoomResponse personalizeRoomResponse(RoomResponse generic, String currentUserId) {
+        boolean isCreator = generic.getCreator() != null && generic.getCreator().getId().equals(currentUserId);
+
+        return RoomResponse.builder()
+                .id(generic.getId())
+                .name(generic.getName())
+                .hasPassword(generic.isHasPassword())
+                .creator(generic.getCreator())
+                .participants(generic.getParticipants())
+                .createdAtDateTime(generic.getCreatedAtDateTime())
+                .recentMessageCount(generic.getRecentMessageCount())
+                .isCreator(isCreator)
+                .build();
     }
 }
