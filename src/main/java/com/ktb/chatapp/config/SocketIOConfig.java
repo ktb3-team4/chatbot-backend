@@ -37,30 +37,35 @@ public class SocketIOConfig {
         com.corundumstudio.socketio.Configuration config = new com.corundumstudio.socketio.Configuration();
         config.setHostname(host);
         config.setPort(port);
-        
+
+        int cores = Runtime.getRuntime().availableProcessors();
+        config.setBossThreads(1);
+        config.setWorkerThreads(Math.max(4, cores * 2));
+
         var socketConfig = new SocketConfig();
         socketConfig.setReuseAddress(true);
-        socketConfig.setTcpNoDelay(false);
-        socketConfig.setAcceptBackLog(10);
-        socketConfig.setTcpSendBufferSize(4096);
-        socketConfig.setTcpReceiveBufferSize(4096);
-        config.setSocketConfig(socketConfig);
+        socketConfig.setTcpNoDelay(true);
 
+        config.setSocketConfig(socketConfig);
         config.setOrigin("*");
 
-        // Socket.IO settings
         config.setPingTimeout(60000);
         config.setPingInterval(25000);
         config.setUpgradeTimeout(10000);
 
-        config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
-        config.setStoreFactory(new MemoryStoreFactory()); // 단일노드 전용
+        config.setMaxFramePayloadLength(1024 * 1024);
+        config.setMaxHttpContentLength(1024 * 1024);
 
-        log.info("Socket.IO server configured on {}:{} with {} boss threads and {} worker threads",
-                 host, port, config.getBossThreads(), config.getWorkerThreads());
+        config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
+
+        config.setStoreFactory(new MemoryStoreFactory());
+
+        log.info("Socket.IO server configured on {}:{} with {} boss, {} worker threads",
+                host, port, config.getBossThreads(), config.getWorkerThreads());
+
         var socketIOServer = new SocketIOServer(config);
         socketIOServer.getNamespace(Namespace.DEFAULT_NAME).addAuthTokenListener(authTokenListener);
-        
+
         return socketIOServer;
     }
     
