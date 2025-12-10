@@ -35,9 +35,6 @@ jobs:
     - name: Spring Boot 테스트 및 빌드 (Maven)
       run: mvn clean package 
 
-    - name: Spring Boot 테스트 및 빌드
-      run: ./gradlew clean build
-
     - name: Docker Hub 로그인
       uses: docker/login-action@v3
       with:
