@@ -1,0 +1,102 @@
+name: Java Spring Boot CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21.0.2
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          # Gradle 캐시 활성화
+          cache: 'gradle'
+
+  # 1. 빌드 및 Docker 이미지 푸시
+  build-docker-image:
+    runs-on: ubuntu-latest
+    
+    # [중요] Gradle 관련 명령어를 'community' 폴더 기준에서 실행
+    defaults:
+      run:
+        working-directory: ./chatbot-backend 
+
+    steps:
+    - name: 체크아웃 코드
+      uses: actions/checkout@v4
+
+    - name: JDK 21 설정
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Gradle 실행 권한 부여
+      run: chmod +x gradlew
+
+    # - name: Spring Boot 빌드 (테스트 제외)
+    #   run: ./gradlew clean build -x test
+    - name: Spring Boot 테스트 및 빌드 # 수정
+      run: ./gradlew clean build
+
+    - name: Docker Hub 로그인
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_TOKEN }} 
+
+    - name: Docker 이미지 빌드 및 푸시
+      uses: docker/build-push-action@v5
+      with:
+        # Dockerfile 위치 지정
+        context: ./chatbot-backend
+        file: ./chatbot-backend/Dockerfile
+        push: true
+        # 배포 편의성을 위해 태그를 'latest'로 고정
+        tags: ${{ secrets.DOCKER_USERNAME }}/back:latest
+
+  # 2. 서버 배포 (CD)
+  deploy:
+    needs: build-docker-image
+    runs-on: ubuntu-latest
+    steps:
+    - name: EC2 접속 및 배포
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 22
+        script: |
+          # 1. 최신 이미지 받기 (태그 일치 확인: back:latest)
+          docker pull ${{ secrets.DOCKER_USERNAME }}/back:latest
+          
+          # 2. 배포 폴더로 이동 (없으면 생성)
+          mkdir -p /home/${{ secrets.SERVER_USER }}/backend-deploy
+          cd /home/${{ secrets.SERVER_USER }}/backend-deploy
+          
+          # 3. docker-compose.yml 생성 (이미지 이름 일치 중요)
+          echo "version: '3.8'
+          services:
+            backend:
+              container_name: community-backend
+              image: ${{ secrets.DOCKER_USERNAME }}/back:latest
+              ports:
+                - '8080:8080'
+              environment:
+                - TZ=Asia/Seoul
+              restart: always" > docker-compose.yml
+          
+          # 4. 컨테이너 재시작
+          docker-compose down
+          docker-compose up -d
+          
+          # 5. 미사용 이미지 정리
+          docker image prune -f
