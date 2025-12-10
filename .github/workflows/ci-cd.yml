@@ -2,7 +2,15 @@ name: Java Spring Boot CI/CD
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+      - develop
+      - feat/env
+  pull_request:
+    branches:
+      - main
+      - develop
+      - feat/env
 
 jobs:
   build:
