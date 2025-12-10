@@ -29,10 +29,11 @@ jobs:
       with:
         java-version: '21'
         distribution: 'temurin'
-        cache: 'gradle' # Gradle 캐시 설정
-
-    - name: Gradle 실행 권한 부여
-      run: chmod +x gradlew
+        cache: 'maven' 
+        cache-dependency-path: ./pom.xml 
+    
+    - name: Spring Boot 테스트 및 빌드 (Maven)
+      run: mvn clean package 
 
     - name: Spring Boot 테스트 및 빌드
       run: ./gradlew clean build
