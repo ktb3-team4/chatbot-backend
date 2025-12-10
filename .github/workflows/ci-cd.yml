@@ -60,7 +60,7 @@ jobs:
         file: ./chatbot-backend/Dockerfile
         push: true
         # 배포 편의성을 위해 태그를 'latest'로 고정
-        tags: ${{ secrets.DOCKER_USERNAME }}/back:latest
+        tags: ${{ secrets.DOCKER_USERNAME }}/backend:latest
 
   # 2. 서버 배포 (CD)
   deploy:
@@ -75,8 +75,8 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: 22
         script: |
-          # 1. 최신 이미지 받기 (태그 일치 확인: back:latest)
-          docker pull ${{ secrets.DOCKER_USERNAME }}/back:latest
+          # 1. 최신 이미지 받기 (태그 일치 확인: backend:latest)
+          docker pull ${{ secrets.DOCKER_USERNAME }}/backend:latest
           
           # 2. 배포 폴더로 이동 (없으면 생성)
           mkdir -p /home/${{ secrets.SERVER_USER }}/backend-deploy
@@ -87,7 +87,7 @@ jobs:
           services:
             backend:
               container_name: community-backend
-              image: ${{ secrets.DOCKER_USERNAME }}/back:latest
+              image: ${{ secrets.DOCKER_USERNAME }}/backend:latest
               ports:
                 - '8080:8080'
               environment:
