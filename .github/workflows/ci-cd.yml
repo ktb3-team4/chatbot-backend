@@ -18,7 +18,7 @@ jobs:
     
     defaults:
       run:
-        working-directory: ../../../chatbot-backend
+        working-directory: .
 
     steps:
     - name: Checkout Code
@@ -30,7 +30,7 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
         cache: 'maven' 
-        cache-dependency-path: ./pom.xml 
+        cache-dependency-path: pom.xml 
     
     - name: Spring Boot 테스트 및 빌드 (Maven)
       run: mvn clean package 
@@ -45,7 +45,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: . # 현재 working-directory 기준
-        file: ../../Dockerfile   # 현재 working-directory 기준
+        file: Dockerfile   # 현재 working-directory 기준
         push: true
         tags: ${{ secrets.DOCKER_USERNAME }}/backend:latest
         
