@@ -30,7 +30,9 @@ public class SecurityConfig {
     private final CustomBearerTokenResolver bearerTokenResolver;
     private final SessionAwareJwtAuthenticationConverter jwtAuthenticationConverter;
 
-    private static final List<String> CORS_ALLOWED_ORIGINS = List.of("*");
+    private static final List<String> CORS_ALLOWED_ORIGINS = List.of(
+            "http://localhost:3000",
+            "http://3.36.57.151:3000");
 
     private static final List<String> CORS_ALLOWED_HEADERS = List.of(
             "Content-Type",
