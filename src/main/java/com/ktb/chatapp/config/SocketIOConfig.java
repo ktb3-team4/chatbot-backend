@@ -6,11 +6,12 @@ import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.annotation.SpringAnnotationScanner;
 import com.corundumstudio.socketio.namespace.Namespace;
 import com.corundumstudio.socketio.protocol.JacksonJsonSupport;
-import com.corundumstudio.socketio.store.MemoryStoreFactory;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.ktb.chatapp.websocket.socketio.ChatDataStore;
 import com.ktb.chatapp.websocket.socketio.LocalChatDataStore;
+import com.ktb.chatapp.websocket.socketio.store.RedissonStoreFactory; // 새로 만든 클래스 임포트
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -26,14 +27,15 @@ import static org.springframework.beans.factory.config.BeanDefinition.ROLE_INFRA
 @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
 public class SocketIOConfig {
 
-    @Value("${socketio.server.host:localhost}")
+    @Value("${socketio.server.host:0.0.0.0}")
     private String host;
 
     @Value("${socketio.server.port:5002}")
     private Integer port;
 
+    // RedissonClient 주입 추가
     @Bean(initMethod = "start", destroyMethod = "stop")
-    public SocketIOServer socketIOServer(AuthTokenListener authTokenListener) {
+    public SocketIOServer socketIOServer(AuthTokenListener authTokenListener, RedissonClient redissonClient) {
         com.corundumstudio.socketio.Configuration config = new com.corundumstudio.socketio.Configuration();
         config.setHostname(host);
         config.setPort(port);
@@ -58,7 +60,9 @@ public class SocketIOConfig {
 
         config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
 
-        config.setStoreFactory(new MemoryStoreFactory());
+        // 중요: MemoryStoreFactory 대신 RedissonStoreFactory 사용
+        config.setStoreFactory(new RedissonStoreFactory(redissonClient));
+        log.info("Socket.IO StoreFactory set to RedissonStoreFactory (Redis)");
 
         log.info("Socket.IO server configured on {}:{} with {} boss, {} worker threads",
                 host, port, config.getBossThreads(), config.getWorkerThreads());
@@ -68,20 +72,18 @@ public class SocketIOConfig {
 
         return socketIOServer;
     }
-    
-    /**
-     * SpringAnnotationScanner는 BeanPostProcessor로서
-     * ApplicationContext 초기화 초기에 등록되고,
-     * 내부에서 사용하는 SocketIOServer는 Lazy로 지연되어
-     * 다른 Bean들의 초기화 과정에 간섭하지 않게 한다.
-     */
+
     @Bean
     @Role(ROLE_INFRASTRUCTURE)
     public BeanPostProcessor springAnnotationScanner(@Lazy SocketIOServer socketIOServer) {
         return new SpringAnnotationScanner(socketIOServer);
     }
-    
-    // 인메모리 저장소, 단일 노드 환경에서만 사용
+
+    /**
+     * TODO: 완전한 분산 환경을 위해서는 이 ChatDataStore(참여자 목록 등)도
+     * Redis 기반(Redisson Map 등)으로 교체해야 합니다.
+     * 현재는 소켓 연결 레이어만 Redis로 교체되었습니다.
+     */
     @Bean
     @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
     public ChatDataStore chatDataStore() {
