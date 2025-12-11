@@ -121,12 +121,6 @@ jobs:
               fi
             }
 
-            update_or_add_env "cloud.aws.s3.bucket" "${{ secrets.AWS_S3_BUCKET }}"
-            update_or_add_env "cloud.aws.s3.region" "${{ secrets.AWS_REGION }}"
-            update_or_add_env "cloud.aws.credentials.access-key" "${{ secrets.AWS_ACCESS_KEY_ID }}"
-            update_or_add_env "cloud.aws.credentials.secret-key" "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-            update_or_add_env "cdn.cloudfront.domain" "${{ secrets.CLOUDFRONT_DOMAIN }}"
-
             # 4. docker-compose.yml 생성
             cat << EOF > docker-compose.yml
             services:
