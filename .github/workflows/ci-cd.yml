@@ -54,35 +54,41 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-    - name: EC2 접속 및 배포
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: 22
-        script: |
-          # 1. 최신 이미지 받기 (태그 일치 확인: backend:latest)
-          docker pull ${{ secrets.DOCKER_USERNAME }}/backend:latest
-          
-          # 2. 배포 폴더로 이동 (없으면 생성)
-          mkdir -p /home/${{ secrets.SERVER_USER }}/backend-deploy
-          cd /home/${{ secrets.SERVER_USER }}/backend-deploy
-          
-          # 3. docker-compose.yml 생성 (이미지 이름 일치 중요)
-          services:
-            backend:
-              container_name: community-backend
-              image: ${{ secrets.DOCKER_USERNAME }}/backend:latest
-              ports:
-                - '8080:8080'
-              environment:
-                - TZ=Asia/Seoul
-              restart: always" > docker-compose.yml
-          
-          # 4. 컨테이너 재시작
-          docker-compose down
-          docker-compose up -d
-          
-          # 5. 미사용 이미지 정리
-          docker image prune -f
+      - name: EC2 접속 및 배포
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            # 1. 최신 이미지 받기 (태그 일치 확인: backend:latest)
+            docker pull ${{ secrets.DOCKER_USERNAME }}/backend:latest
+            
+            # 2. 배포 폴더로 이동 (없으면 생성)
+            mkdir -p /home/${{ secrets.SERVER_USER }}/backend-deploy
+            cd /home/${{ secrets.SERVER_USER }}/backend-deploy
+            
+            # 3. docker-compose.yml 생성 (이미지 이름 일치 중요)
+            cat << EOF > docker-compose.yml
+            version: "3.8"
+            
+            services:
+              backend:
+                container_name: community-backend
+                image: ${{ secrets.DOCKER_USERNAME }}/backend:latest
+                ports:
+                  - "8080:8080"
+                env_file:
+                  - .env
+                environment:
+                  - TZ=Asia/Seoul
+                restart: always
+            EOF
+            
+            # 4. 컨테이너 재시작
+            docker-compose down || true
+            docker-compose up -d
+            
+            # 5. 미사용 이미지 정리
+            docker image prune -f
