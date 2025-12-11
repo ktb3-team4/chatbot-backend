@@ -86,8 +86,8 @@ jobs:
             EOF
             
             # 4. 컨테이너 재시작
-            docker-compose down || true
-            docker-compose up -d
+            docker compose down || true
+            docker compose up -d
             
             # 5. 미사용 이미지 정리
             docker image prune -f
