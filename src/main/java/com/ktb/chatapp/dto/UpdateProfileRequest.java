@@ -9,4 +9,6 @@ public class UpdateProfileRequest {
     @NotBlank(message = "이름을 입력해주세요.")
     @ValidName
     private String name;
+
+    private String profileImage;
 }

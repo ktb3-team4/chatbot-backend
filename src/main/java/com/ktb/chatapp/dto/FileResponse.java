@@ -23,6 +23,8 @@ public class FileResponse {
     private String user;
     private LocalDateTime uploadDate;
 
+    private String url;
+
     // File 엔티티에서 FileResponse로 변환하는 정적 메서드
     public static FileResponse from(File file) {
         return FileResponse.builder()
@@ -33,6 +35,7 @@ public class FileResponse {
                 .size(file.getSize())
                 .user(file.getUser())
                 .uploadDate(file.getUploadDate())
+                .url(file.getPath())
                 .build();
     }
 }

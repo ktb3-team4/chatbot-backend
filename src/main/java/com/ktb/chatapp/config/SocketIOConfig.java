@@ -20,6 +20,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Role;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 
 import static org.springframework.beans.factory.config.BeanDefinition.ROLE_INFRASTRUCTURE;
 
@@ -36,7 +37,8 @@ public class SocketIOConfig {
 
     // RedissonClient 주입 추가
     @Bean(initMethod = "start", destroyMethod = "stop")
-    public SocketIOServer socketIOServer(AuthTokenListener authTokenListener, RedissonClient redissonClient) {
+    public SocketIOServer socketIOServer(AuthTokenListener authTokenListener, RedissonClient redissonClient,
+                                         RedisConnectionFactory redisConnectionFactory) {
         com.corundumstudio.socketio.Configuration config = new com.corundumstudio.socketio.Configuration();
         config.setHostname(host);
         config.setPort(port);
@@ -61,6 +63,7 @@ public class SocketIOConfig {
         config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule(), new BlackbirdModule()));
 
         config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
+        config.setStoreFactory(new RedissonStoreFactory(redissonClient));
 
         // 중요: MemoryStoreFactory 대신 RedissonStoreFactory 사용
         config.setStoreFactory(new RedissonStoreFactory(redissonClient));

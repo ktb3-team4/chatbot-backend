@@ -72,7 +72,7 @@ public class ChatMessageHandler {
     }
 
     private void processMessageAsync(SocketIOClient client, ChatMessageRequest data, SocketUser socketUser) {
-        Timer.Sample timerSample = Timer.start(meterRegistry); // 타이머 시작
+        Timer.Sample timerSample = Timer.start(meterRegistry);
 
         try {
             SessionValidationResult validation = sessionService.validateSession(socketUser.id(), socketUser.authSessionId());
@@ -95,7 +95,6 @@ public class ChatMessageHandler {
                 return;
             }
 
-            // [수정] sender 정보를 조회하여 이후 로직에 활용 (임베딩을 위해)
             User sender = userRepository.findById(socketUser.id()).orElse(null);
             if (sender == null) {
                 recordError("user_not_found");
@@ -114,6 +113,7 @@ public class ChatMessageHandler {
             }
 
             MessageContent messageContent = data.getParsedContent();
+
             if (bannedWordChecker.containsBannedWord(messageContent.getTrimmedContent())) {
                 recordError("banned_word");
                 client.sendEvent(ERROR, Map.of("code", "MESSAGE_REJECTED", "message", "금칙어가 포함된 메시지는 전송할 수 없습니다."));
@@ -122,6 +122,7 @@ public class ChatMessageHandler {
             }
 
             String messageType = data.getMessageType();
+
             Message message = switch (messageType) {
                 case "file" -> handleFileMessage(roomId, sender, messageContent, data.getFileData());
                 case "text" -> handleTextMessage(roomId, sender, messageContent);
@@ -153,37 +154,55 @@ public class ChatMessageHandler {
         }
     }
 
-    // sender 객체를 받아 임베딩 필드 설정
     private Message handleFileMessage(String roomId, User sender, MessageContent messageContent, Map<String, Object> fileData) {
-        if (fileData == null || fileData.get("_id") == null) {
+        if (fileData == null) {
             throw new IllegalArgumentException("파일 데이터가 올바르지 않습니다.");
         }
 
-        String fileId = (String) fileData.get("_id");
-        File file = fileRepository.findById(fileId).orElse(null);
+        // 1. 프론트엔드에서 전달받은 파일 메타데이터 추출
+        String filename = (String) fileData.get("filename");         // S3 Key
+        String originalname = (String) fileData.get("originalname");
+        String mimetype = (String) fileData.get("mimetype");
+        String url = (String) fileData.get("url");                   // CloudFront URL
 
-        if (file == null || !file.getUser().equals(sender.getId())) {
-            throw new IllegalStateException("파일을 찾을 수 없거나 접근 권한이 없습니다.");
+        // 숫자는 Integer로 올 수 있으므로 Number로 형변환 후 long 처리
+        long size = 0;
+        if (fileData.get("size") instanceof Number) {
+            size = ((Number) fileData.get("size")).longValue();
         }
 
+        // 기존에는 ID로 조회했지만, 이제는 받은 정보로 새로 생성합니다.
+        File newFile = File.builder()
+                .filename(filename)
+                .originalname(originalname)
+                .mimetype(mimetype)
+                .size(size)
+                .path(url)              // 프론트에서 받은 URL 저장
+                .user(sender.getId())   // 업로더 ID
+                .uploadDate(LocalDateTime.now())
+                .build();
+
+        File savedFile = fileRepository.save(newFile); // DB에 저장하고 ID 생성
+
+        // 3. Message 생성 및 파일 정보 연결
         Message message = new Message();
         message.setRoomId(roomId);
 
-        // Sender 정보 임베딩
         message.setSenderId(sender.getId());
         message.setSenderName(sender.getName());
         message.setSenderProfileImage(sender.getProfileImage());
 
         message.setType(MessageType.file);
-        message.setFileId(fileId);
+        message.setFileId(savedFile.getId());
         message.setContent(messageContent.getTrimmedContent());
         message.setTimestamp(LocalDateTime.now());
         message.setMentions(messageContent.aiMentions());
 
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("fileType", file.getMimetype());
-        metadata.put("fileSize", file.getSize());
-        metadata.put("originalName", file.getOriginalname());
+        metadata.put("fileType", savedFile.getMimetype());
+        metadata.put("fileSize", savedFile.getSize());
+        metadata.put("originalName", savedFile.getOriginalname());
+        metadata.put("url", savedFile.getPath());
         message.setMetadata(metadata);
 
         return message;
