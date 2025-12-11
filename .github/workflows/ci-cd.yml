@@ -71,8 +71,6 @@ jobs:
             
             # 3. docker-compose.yml 생성 (이미지 이름 일치 중요)
             cat << EOF > docker-compose.yml
-            version: "3.8"
-            
             services:
               backend:
                 container_name: community-backend
