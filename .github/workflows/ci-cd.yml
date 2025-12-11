@@ -49,31 +49,68 @@ jobs:
         push: true
         tags: ${{ secrets.DOCKER_USERNAME }}/backend:latest
 
-  # 2. 서버 배포 (CD)
+  # 2. 서버 배포 (CD) - Matrix를 이용한 다중 서버 배포
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        server:
+          - name: "server-1"
+            host: "54.180.238.143"
+            user: "ubuntu"
+            container_name: "community-backend-1"
+          - name: "server-2"
+            host: "3.38.97.55"
+            user: "ubuntu"
+            container_name: "community-backend-2"
+          - name: "server-3"
+            host: "43.201.83.106"
+            user: "ubuntu"
+            container_name: "community-backend-3"
+          - name: "server-4"
+            host: "13.124.116.174"
+            user: "ubuntu"
+            container_name: "community-backend-4"
+          - name: "server-5"
+            host: "3.38.169.75"
+            user: "ubuntu"
+            container_name: "community-backend-5"
+          - name: "server-6"
+            host: "13.125.197.11"
+            user: "ubuntu"
+            container_name: "community-backend-6"
+          - name: "server-7"
+            host: "43.203.198.221"
+            user: "ubuntu"
+            container_name: "community-backend-7"
+          - name: "server-8"
+            host: "52.79.85.147"
+            user: "ubuntu"
+            container_name: "community-backend-8"
+      fail-fast: false  # 한 서버 실패해도 다른 서버 배포 계속 진행
+
     steps:
-      - name: EC2 접속 및 배포
+      - name: ${{ matrix.server.name }} 접속 및 배포
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
+          host: ${{ matrix.server.host }}
+          username: ${{ matrix.server.user }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
             # 1. 최신 이미지 받기 (태그 일치 확인: backend:latest)
             docker pull ${{ secrets.DOCKER_USERNAME }}/backend:latest
-            
+
             # 2. 배포 폴더로 이동 (없으면 생성)
-            mkdir -p /home/${{ secrets.SERVER_USER }}/backend-deploy
-            cd /home/${{ secrets.SERVER_USER }}/backend-deploy
-            
+            mkdir -p /home/${{ matrix.server.user }}/backend-deploy
+            cd /home/${{ matrix.server.user }}/backend-deploy
+
             # 3. docker-compose.yml 생성 (이미지 이름 일치 중요)
             cat << EOF > docker-compose.yml
             services:
               backend:
-                container_name: community-backend
+                container_name: ${{ matrix.server.container_name }}
                 image: ${{ secrets.DOCKER_USERNAME }}/backend:latest
                 ports:
                   - "5001:5001"
@@ -84,10 +121,10 @@ jobs:
                   - TZ=Asia/Seoul
                 restart: always
             EOF
-            
+
             # 4. 컨테이너 재시작
             docker compose down || true
             docker compose up -d
-            
+
             # 5. 미사용 이미지 정리
             docker image prune -f
