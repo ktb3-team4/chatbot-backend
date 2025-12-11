@@ -3,11 +3,11 @@ package com.ktb.chatapp.websocket.socketio;
 import com.corundumstudio.socketio.AuthTokenListener;
 import com.corundumstudio.socketio.AuthTokenResult;
 import com.corundumstudio.socketio.SocketIOClient;
-import com.ktb.chatapp.model.User;
-import com.ktb.chatapp.repository.UserRepository;
+import com.ktb.chatapp.dto.UserResponse;
 import com.ktb.chatapp.service.JwtService;
 import com.ktb.chatapp.service.SessionService;
 import com.ktb.chatapp.service.SessionValidationResult;
+import com.ktb.chatapp.service.UserService; // ✅ 추가
 import com.ktb.chatapp.websocket.socketio.handler.ConnectionLoginHandler;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -17,10 +17,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
 
-/**
- * Socket.IO Authorization Handler
- * socket.handshake.auth.token과 sessionId를 처리한다.
- */
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
@@ -29,30 +25,30 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
 
     private final JwtService jwtService;
     private final SessionService sessionService;
-    private final UserRepository userRepository;
+    private final UserService userService; // 캐시된 서비스
     private final ObjectProvider<ConnectionLoginHandler> socketIOChatHandlerProvider;
 
     @Override
     public AuthTokenResult getAuthTokenResult(Object _authToken, SocketIOClient client) {
+        if (!(_authToken instanceof Map)) {
+            return new AuthTokenResult(false, Map.of("message", "Invalid auth token format"));
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> authData = (Map<String, Object>) _authToken;
+        String token = (String) authData.get("token");
+        String sessionId = (String) authData.get("sessionId");
+
+        if (token == null || sessionId == null) {
+            return new AuthTokenResult(false, Map.of("message", "Missing token or sessionId"));
+        }
+
         try {
-            var authToken = (Map<?, ?>) _authToken;
-            String token = authToken.get("token") != null ? authToken.get("token").toString() : null;
-            String sessionId = authToken.get("sessionId") != null ? authToken.get("sessionId").toString() : null;
+            // 1. 토큰에서 정보 추출
+            String userId = jwtService.extractUserId(token);
+            String email = jwtService.extractEmail(token);
 
-            if (token == null || sessionId == null) {
-                log.warn("Missing authentication credentials in Socket.IO handshake - token: {}, sessionId: {}",
-                        token != null, sessionId != null);
-                return new AuthTokenResult(false, "Authentication error");
-            }
-
-            String userId;
-            try {
-                userId = jwtService.extractUserId(token);
-            } catch (JwtException e) {
-                return new AuthTokenResult(false, Map.of("message", "Invalid token"));
-            }
-
-            // Validate session using SessionService
+            // 2. 세션 검증 - Redis 조회
             SessionValidationResult validationResult =
                     sessionService.validateSession(userId, sessionId);
 
@@ -61,18 +57,23 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
                 return new AuthTokenResult(false, Map.of("message", "Invalid session"));
             }
 
-            // Load user from database
-            User user = userRepository.findById(userId).orElse(null);
+            // 3. 유저 정보 조회 - 캐시 사용 -> DB 조회 X
+            // UserResponse는 DTO이므로 SocketUser 생성에 바로 활용 가능
+            UserResponse user = userService.getCurrentUserProfile(email);
+
             if (user == null) {
-                log.error("User not found: {}", userId);
+                log.error("User not found: {}", email);
                 return new AuthTokenResult(false, Map.of("message", "User not found"));
             }
 
             log.info("Socket.IO connection authorized for user: {} ({})", user.getName(), userId);
-            
+
+            // 4. 소켓 유저 등록
             var socketUser = new SocketUser(user.getId(), user.getName(), sessionId, client.getSessionId().toString());
             socketIOChatHandlerProvider.getObject().onConnect(client, socketUser);
+
             return AuthTokenResult.AuthTokenResultSuccess;
+
         } catch (Exception e) {
             log.error("Socket.IO authentication error: {}", e.getMessage(), e);
             return new AuthTokenResult(false, Map.of("message", e.getMessage()));
