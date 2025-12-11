@@ -76,7 +76,8 @@ jobs:
                 container_name: community-backend
                 image: ${{ secrets.DOCKER_USERNAME }}/backend:latest
                 ports:
-                  - "8080:8080"
+                  - "5001:5001"
+                  - "5002:5002"
                 env_file:
                   - .env
                 environment:
