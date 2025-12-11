@@ -1,7 +1,6 @@
 package com.ktb.chatapp.controller;
 
 import com.ktb.chatapp.dto.StandardResponse;
-import com.ktb.chatapp.dto.ProfileImageResponse;
 import com.ktb.chatapp.dto.UpdateProfileRequest;
 import com.ktb.chatapp.dto.UserResponse;
 import com.ktb.chatapp.service.UserService;
@@ -19,13 +18,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.security.Principal;
 
@@ -97,46 +93,6 @@ public class UserController {
         } catch (Exception e) {
             log.error("사용자 프로필 업데이트 중 오류 발생: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().body(StandardResponse.error("프로필 업데이트 중 오류가 발생했습니다."));
-        }
-    }
-
-    /**
-     * 프로필 이미지 업로드
-     */
-    @Operation(summary = "프로필 이미지 업로드", description = "프로필 이미지를 업로드합니다. 최대 5MB까지 가능합니다.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "이미지 업로드 성공",
-            content = @Content(schema = @Schema(implementation = ProfileImageResponse.class))),
-        @ApiResponse(responseCode = "400", description = "잘못된 파일 형식",
-            content = @Content(schema = @Schema(implementation = StandardResponse.class),
-                examples = @ExampleObject(value = "{\"success\":false,\"message\":\"지원하지 않는 파일 형식입니다.\"}"))),
-        @ApiResponse(responseCode = "401", description = "인증 실패",
-            content = @Content(schema = @Schema(implementation = StandardResponse.class))),
-        @ApiResponse(responseCode = "404", description = "사용자를 찾을 수 없음",
-            content = @Content(schema = @Schema(implementation = StandardResponse.class))),
-        @ApiResponse(responseCode = "413", description = "파일 크기 초과",
-            content = @Content(schema = @Schema(implementation = StandardResponse.class),
-                examples = @ExampleObject(value = "{\"success\":false,\"code\":\"FILE_TOO_LARGE\",\"message\":\"파일 크기는 5MB를 초과할 수 없습니다.\"}"))),
-        @ApiResponse(responseCode = "500", description = "서버 내부 오류",
-            content = @Content(schema = @Schema(implementation = StandardResponse.class)))
-    })
-    @PostMapping("/profile-image")
-    public ResponseEntity<?> uploadProfileImage(
-            Principal principal,
-            @RequestParam("profileImage") MultipartFile file) {
-
-        try {
-            ProfileImageResponse response = userService.uploadProfileImage(principal.getName(), file);
-            return ResponseEntity.ok(response);
-        } catch (UsernameNotFoundException e) {
-            log.error("프로필 이미지 업로드 실패 - 사용자 없음: {}", e.getMessage());
-            return ResponseEntity.status(404).body(StandardResponse.error("사용자를 찾을 수 없습니다."));
-        } catch (IllegalArgumentException e) {
-            log.error("프로필 이미지 업로드 실패 - 잘못된 입력: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(StandardResponse.error(e.getMessage()));
-        } catch (Exception e) {
-            log.error("프로필 이미지 업로드 중 오류 발생: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(StandardResponse.error("이미지 업로드 중 오류가 발생했습니다."));
         }
     }
 
