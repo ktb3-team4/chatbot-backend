@@ -109,7 +109,25 @@ jobs:
             mkdir -p ~/backend-deploy
             cd ~/backend-deploy
 
-            # 3. docker-compose.yml 생성
+            # 3. .env 파일에 AWS S3 & CloudFront 설정 추가/업데이트
+            # 기존 설정이 없으면 추가, 있으면 업데이트
+            update_or_add_env() {
+              KEY=$1
+              VALUE=$2
+              if grep -q "^${KEY}=" .env 2>/dev/null; then
+                sed -i "s|^${KEY}=.*|${KEY}=${VALUE}|" .env
+              else
+                echo "${KEY}=${VALUE}" >> .env
+              fi
+            }
+
+            update_or_add_env "cloud.aws.s3.bucket" "${{ secrets.AWS_S3_BUCKET }}"
+            update_or_add_env "cloud.aws.s3.region" "${{ secrets.AWS_REGION }}"
+            update_or_add_env "cloud.aws.credentials.access-key" "${{ secrets.AWS_ACCESS_KEY_ID }}"
+            update_or_add_env "cloud.aws.credentials.secret-key" "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+            update_or_add_env "cdn.cloudfront.domain" "${{ secrets.CLOUDFRONT_DOMAIN }}"
+
+            # 4. docker-compose.yml 생성
             cat << EOF > docker-compose.yml
             services:
               backend:
@@ -125,9 +143,9 @@ jobs:
                 restart: always
             EOF
 
-            # 4. 컨테이너 재시작
+            # 5. 컨테이너 재시작
             docker compose down || true
             docker compose up -d
 
-            # 5. 미사용 이미지 정리
+            # 6. 미사용 이미지 정리
             docker image prune -f
