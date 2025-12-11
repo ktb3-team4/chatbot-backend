@@ -46,7 +46,7 @@ public class CacheConfig {
 
         // 3. Redis 캐시 설정
         RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
-                .entryTtl(Duration.ofSeconds(60)) // TTL 60초
+                .entryTtl(Duration.ofMinutes(30)) // TTL 30분
                 .disableCachingNullValues()
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer(objectMapper)));

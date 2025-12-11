@@ -9,6 +9,7 @@ import com.ktb.chatapp.util.FileUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -53,6 +54,7 @@ public class UserService {
      * 사용자 프로필 업데이트
      * @param email 사용자 이메일
      */
+    @CacheEvict(value = "security_user", key = "#email")
     public UserResponse updateUserProfile(String email, UpdateProfileRequest request) {
         User user = userRepository.findByEmail(email.toLowerCase())
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
@@ -167,6 +169,7 @@ public class UserService {
      * 프로필 이미지 삭제
      * @param email 사용자 이메일
      */
+    @CacheEvict(value = "security_user", key = "#email")
     public void deleteProfileImage(String email) {
         User user = userRepository.findByEmail(email.toLowerCase())
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
