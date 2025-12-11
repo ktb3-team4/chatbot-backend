@@ -108,28 +108,30 @@ public class SessionService {
         }
     }
 
+    // ✅ 이걸로 복사해서 updateLastActivity 메서드를 교체하세요!
     public void updateLastActivity(String userId) {
         try {
-            if (userId == null) {
-                log.warn("updateLastActivity called with null userId");
-                return;
-            }
+            SessionData activeSession = getActiveSession(userId);
 
-            Session session = sessionStore.findByUserId(userId).orElse(null);
-            if (session == null) {
-                log.debug("No session found to update last activity for user: {}", userId);
-                return;
-            }
+            if (activeSession != null) {
+                long now = Instant.now().toEpochMilli();
 
-            long now = Instant.now().toEpochMilli();
-            if (now - session.getLastActivity() < 60000) {
-                return;
-            }
+                // 1분(60,000ms)이 안 지났으면 갱신 스킵 (Redis 쓰기 방지)
+                if (now - activeSession.getLastActivity() < 60_000) {
+                    return;
+                }
 
-            session.setLastActivity(Instant.now().toEpochMilli());
-            session.setExpiresAt(Instant.now().plusSeconds(SESSION_TTL_SEC));
-            sessionStore.save(session);
-            
+                // 기존 세션 정보 유지하면서 시간만 갱신
+                Session session = Session.builder()
+                        .userId(userId)
+                        .sessionId(activeSession.getSessionId())
+                        .createdAt(activeSession.getCreatedAt())
+                        .lastActivity(now) // 시간만 현재로 변경
+                        .metadata(activeSession.getMetadata())
+                        .build();
+
+                sessionStore.save(session);
+            }
         } catch (Exception e) {
             log.error("Failed to update session activity for user: {}", userId, e);
         }

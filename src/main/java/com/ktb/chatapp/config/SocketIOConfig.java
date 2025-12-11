@@ -9,7 +9,7 @@ import com.corundumstudio.socketio.protocol.JacksonJsonSupport;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fasterxml.jackson.module.blackbird.BlackbirdModule;
 import com.ktb.chatapp.websocket.socketio.ChatDataStore;
-import com.ktb.chatapp.websocket.socketio.LocalChatDataStore;
+import com.ktb.chatapp.websocket.socketio.RedisChatDataStore;
 import com.ktb.chatapp.websocket.socketio.store.RedissonStoreFactory; // 새로 만든 클래스 임포트
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RedissonClient;
@@ -82,13 +82,11 @@ public class SocketIOConfig {
     }
 
     /**
-     * TODO: 완전한 분산 환경을 위해서는 이 ChatDataStore(참여자 목록 등)도
-     * Redis 기반(Redisson Map 등)으로 교체해야 합니다.
-     * 현재는 소켓 연결 레이어만 Redis로 교체되었습니다.
+     * Redis 기반 ChatDataStore를 사용하여 다중 서버 환경에서 사용자/룸 데이터 공유
      */
     @Bean
     @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
-    public ChatDataStore chatDataStore() {
-        return new LocalChatDataStore();
+    public ChatDataStore chatDataStore(RedissonClient redissonClient) {
+        return new RedisChatDataStore(redissonClient);
     }
 }
