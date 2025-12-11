@@ -37,9 +37,9 @@ public class UserService {
 
         // 프론트엔드에서 S3 업로드 후 보낸 URL을 저장
         if (request.getProfileImage() != null) {
-            if (request.getProfileImage().isEmpty() && hasProfileImage(user)) {
-                fileService.deleteFileByUrl(user.getProfileImage());
-            }
+//            if (request.getProfileImage().isEmpty() && hasProfileImage(user)) {
+//                fileService.deleteFileByUrl(user.getProfileImage());
+//            }
             user.setProfileImage(request.getProfileImage());
         }
 
@@ -70,7 +70,7 @@ public class UserService {
         }
 
         // S3에서 파일 삭제
-        fileService.deleteFileByUrl(user.getProfileImage());
+        //fileService.deleteFileByUrl(user.getProfileImage());
 
         // DB 정보 초기화
         user.setProfileImage("");
@@ -86,14 +86,14 @@ public class UserService {
     /**
      * 프로필 이미지 삭제 (URL 정보만 지움)
      */
-    public void deleteProfileImage(String email) {
-        User user = userRepository.findByEmail(email.toLowerCase())
-                .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
-
-        if (hasProfileImage(user)) {
-            deleteOldProfileImage(user);
-        }
-    }
+//    public void deleteProfileImage(String email) {
+//        User user = userRepository.findByEmail(email.toLowerCase())
+//                .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
+//
+//        if (hasProfileImage(user)) {
+//            deleteOldProfileImage(user);
+//        }
+//    }
 
     /**
      * 회원 탈퇴 처리
@@ -102,9 +102,9 @@ public class UserService {
         User user = userRepository.findByEmail(email.toLowerCase())
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
 
-        if (hasProfileImage(user)) {
-            fileService.deleteFileByUrl(user.getProfileImage());
-        }
+//        if (hasProfileImage(user)) {
+//            fileService.deleteFileByUrl(user.getProfileImage());
+//        }
 
         userRepository.delete(user);
         log.info("회원 탈퇴 완료 - User ID: {}", user.getId());

@@ -114,7 +114,7 @@ public class UserController {
     @DeleteMapping("/profile-image")
     public ResponseEntity<?> deleteProfileImage(Principal principal) {
         try {
-            userService.deleteProfileImage(principal.getName());
+            //userService.deleteProfileImage(principal.getName());
             return ResponseEntity.ok(StandardResponse.success("프로필 이미지가 삭제되었습니다."));
         } catch (UsernameNotFoundException e) {
             log.error("프로필 이미지 삭제 실패 - 사용자 없음: {}", e.getMessage());
