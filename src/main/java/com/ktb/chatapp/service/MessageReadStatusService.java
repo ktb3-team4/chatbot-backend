@@ -3,12 +3,16 @@ package com.ktb.chatapp.service;
 import com.ktb.chatapp.model.Message;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RBatch;
+import org.redisson.api.RSet;
+import org.redisson.api.RSetAsync;
+import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.data.mongodb.core.BulkOperations;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -21,7 +25,7 @@ import java.util.*;
 public class MessageReadStatusService {
 
     private final MongoTemplate mongoTemplate;
-    private final StringRedisTemplate redisTemplate;
+    private final RedissonClient redissonClient;
 
     private static final String READ_STATUS_KEY = "chat:read-status:buffer";
 
@@ -32,15 +36,17 @@ public class MessageReadStatusService {
         if (messageIds == null || messageIds.isEmpty()) {
             return;
         }
-        // Redis Set에 "messageId:userId" 형태로 저장
-        // 파이프라인을 사용하여 네트워크 왕복 최소화
-        redisTemplate.executePipelined((org.springframework.data.redis.connection.RedisConnection connection) -> {
-            for (String messageId : messageIds) {
-                String entry = messageId + ":" + userId;
-                connection.setCommands().sAdd(READ_STATUS_KEY.getBytes(), entry.getBytes());
-            }
-            return null;
-        });
+
+        // Redisson Batch를 사용하여 파이프라인 최적화
+        RBatch batch = redissonClient.createBatch();
+        // StringCodec을 사용하여 일반 문자열로 저장
+        RSetAsync<String> set = batch.getSet(READ_STATUS_KEY, StringCodec.INSTANCE);
+
+        for (String messageId : messageIds) {
+            String entry = messageId + ":" + userId;
+            set.addAsync(entry);
+        }
+        batch.execute();
     }
 
     /**
@@ -48,12 +54,13 @@ public class MessageReadStatusService {
      */
     @Scheduled(fixedDelay = 5000)
     public void flushReadStatusToDb() {
-        List<String> popped = redisTemplate.opsForSet().pop(READ_STATUS_KEY, 1000);
+        RSet<String> set = redissonClient.getSet(READ_STATUS_KEY, StringCodec.INSTANCE);
+        Set<String> popped = set.removeRandom(1000);
 
         if (popped == null || popped.isEmpty()) {
             return;
         }
-        Set<String> entries = new HashSet<>(popped);
+        Set<String> entries = popped;
 
         Map<String, Set<String>> messageToReaders = new HashMap<>();
 
@@ -101,5 +108,4 @@ public class MessageReadStatusService {
             log.error("Failed to flush read status to DB", e);
         }
     }
-
 }
