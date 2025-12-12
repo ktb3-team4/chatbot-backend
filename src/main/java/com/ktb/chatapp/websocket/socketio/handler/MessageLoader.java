@@ -11,9 +11,9 @@ import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
@@ -49,22 +49,22 @@ public class MessageLoader {
             String userId) {
         Pageable pageable = PageRequest.of(0, limit, Sort.by("timestamp").descending());
 
-        Page<Message> messagePage = messageRepository
+        Slice<Message> messageSlice = messageRepository
                 .findByRoomIdAndIsDeletedAndTimestampBefore(roomId, false, before, pageable);
 
-        List<Message> messages = messagePage.getContent();
+        List<Message> messages = messageSlice.getContent();
         List<Message> sortedMessages = messages.reversed();
 
-        // 읽음 처리
-        var messageIds = sortedMessages.stream().map(Message::getId).toList();
-        messageReadStatusService.updateReadStatus(messageIds, userId);
+        if (userId != null && !sortedMessages.isEmpty()) {
+            var messageIds = sortedMessages.stream().map(Message::getId).toList();
+            messageReadStatusService.updateReadStatus(messageIds, userId);
+        }
 
-        // User 조회 없이 바로 매핑
         List<MessageResponse> messageResponses = sortedMessages.stream()
                 .map(messageResponseMapper::mapToMessageResponse)
                 .collect(Collectors.toList());
 
-        boolean hasMore = messagePage.hasNext();
+        boolean hasMore = messageSlice.hasNext();
 
         return FetchMessagesResponse.builder()
                 .messages(messageResponses)
