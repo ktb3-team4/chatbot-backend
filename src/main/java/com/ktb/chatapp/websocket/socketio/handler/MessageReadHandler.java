@@ -3,6 +3,7 @@ package com.ktb.chatapp.websocket.socketio.handler;
 import com.corundumstudio.socketio.SocketIOClient;
 import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.annotation.OnEvent;
+import com.fasterxml.jackson.databind.ObjectMapper; // [추가]
 import com.ktb.chatapp.dto.MarkAsReadRequest;
 import com.ktb.chatapp.dto.MessagesReadResponse;
 import com.ktb.chatapp.model.Message;
@@ -30,13 +31,14 @@ import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
 @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 public class MessageReadHandler {
-    
+
     private final SocketIOServer socketIOServer;
     private final MessageReadStatusService messageReadStatusService;
     private final MessageRepository messageRepository;
     private final RoomRepository roomRepository;
     private final UserRepository userRepository;
-    
+    private final ObjectMapper objectMapper; // [추가] ObjectMapper 주입
+
     @OnEvent(MARK_MESSAGES_AS_READ)
     public void handleMarkAsRead(SocketIOClient client, MarkAsReadRequest data) {
         try {
@@ -49,10 +51,11 @@ public class MessageReadHandler {
             if (data == null || data.getMessageIds() == null || data.getMessageIds().isEmpty()) {
                 return;
             }
-            
+
+            // 첫 번째 메시지로 채팅방 ID 조회 (모든 메시지가 같은 방이라고 가정)
             String roomId = messageRepository.findById(data.getMessageIds().getFirst())
                     .map(Message::getRoomId).orElse(null);
-            
+
             if (roomId == null || roomId.isBlank()) {
                 client.sendEvent(ERROR, Map.of("message", "Invalid room"));
                 return;
@@ -69,7 +72,7 @@ public class MessageReadHandler {
                 client.sendEvent(ERROR, Map.of("message", "Room access denied"));
                 return;
             }
-            
+
             messageReadStatusService.updateReadStatus(data.getMessageIds(), userId);
 
             MessagesReadResponse response = new MessagesReadResponse(userId, data.getMessageIds());
@@ -85,9 +88,22 @@ public class MessageReadHandler {
             ));
         }
     }
-    
+
     private String getUserId(SocketIOClient client) {
-        var user = (SocketUser) client.get("user");
-        return user.id();
+        Object value = client.get("user");
+        if (value == null) {
+            return null;
+        }
+        // 메모리 내 객체인 경우 (같은 서버 내)
+        if (value instanceof SocketUser socketUser) {
+            return socketUser.id();
+        }
+        // Redis에서 역직렬화된 Map인 경우 (다중 서버 환경)
+        try {
+            return objectMapper.convertValue(value, SocketUser.class).id();
+        } catch (Exception e) {
+            log.warn("Failed to convert session user data to SocketUser: {}", e.getMessage());
+            return null;
+        }
     }
 }

@@ -15,6 +15,7 @@ import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import com.ktb.chatapp.websocket.socketio.UserRooms;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,7 @@ public class RoomJoinHandler {
     private final MessageLoader messageLoader;
     private final MessageResponseMapper messageResponseMapper;
     private final RoomLeaveHandler roomLeaveHandler;
+    private final ObjectMapper objectMapper;
     
     @OnEvent(JOIN_ROOM)
     public void handleJoinRoom(SocketIOClient client, String roomId) {
@@ -143,7 +145,19 @@ public class RoomJoinHandler {
     }
     
     private SocketUser getUser(SocketIOClient client) {
-        return client.get("user");
+        Object value = client.get("user");
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof SocketUser socketUser) {
+            return socketUser;
+        }
+        try {
+            return objectMapper.convertValue(value, SocketUser.class);
+        } catch (Exception e) {
+            log.warn("Failed to convert session user data to SocketUser: {}", e.getMessage());
+            return null;
+        }
     }
 
     private String getUserId(SocketIOClient client) {

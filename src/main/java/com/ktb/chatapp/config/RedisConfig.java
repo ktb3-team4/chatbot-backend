@@ -2,11 +2,13 @@ package com.ktb.chatapp.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fasterxml.jackson.module.blackbird.BlackbirdModule;
 import com.ktb.chatapp.model.Session;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
+import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.config.Config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -28,11 +30,26 @@ public class RedisConfig {
     // Redisson 클라이언트 설정 (RateLimit, Lock)
     @Bean(destroyMethod = "shutdown")
     public RedissonClient redissonClient() {
+
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.registerModule(new BlackbirdModule());
+
+        mapper.activateDefaultTyping(
+                LaissezFaireSubTypeValidator.instance,
+                ObjectMapper.DefaultTyping.NON_FINAL
+        );
+
+        JsonJacksonCodec codec = new JsonJacksonCodec(mapper);
+
         Config config = new Config();
         config.useSingleServer()
                 .setAddress("redis://" + redisHost + ":" + redisPort);
+        config.setCodec(codec);
+
         return Redisson.create(config);
     }
+
 
     // Spring Data Redis 템플릿 설정 (세션 저장소 등 일반 캐시용)
     @Bean

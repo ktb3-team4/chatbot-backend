@@ -6,6 +6,7 @@ import com.corundumstudio.socketio.annotation.OnDisconnect;
 import com.ktb.chatapp.websocket.socketio.ConnectedUsers;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import com.ktb.chatapp.websocket.socketio.UserRooms;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
@@ -33,6 +34,7 @@ public class ConnectionLoginHandler {
     private final UserRooms userRooms;
     private final RoomJoinHandler roomJoinHandler;
     private final RoomLeaveHandler roomLeaveHandler;
+    private final ObjectMapper objectMapper;
 
     public ConnectionLoginHandler(
             SocketIOServer socketIOServer,
@@ -40,12 +42,14 @@ public class ConnectionLoginHandler {
             UserRooms userRooms,
             RoomJoinHandler roomJoinHandler,
             RoomLeaveHandler roomLeaveHandler,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            ObjectMapper objectMapper) {
         this.socketIOServer = socketIOServer;
         this.connectedUsers = connectedUsers;
         this.userRooms = userRooms;
         this.roomJoinHandler = roomJoinHandler;
         this.roomLeaveHandler = roomLeaveHandler;
+        this.objectMapper = objectMapper;
 
         // Register gauge metric for concurrent users
         Gauge.builder("socketio.concurrent.users", connectedUsers::size)
@@ -122,7 +126,19 @@ public class ConnectionLoginHandler {
     }
     
     private SocketUser getUserDto(SocketIOClient client) {
-        return client.get("user");
+        Object value = client.get("user");
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof SocketUser socketUser) {
+            return socketUser;
+        }
+        try {
+            return objectMapper.convertValue(value, SocketUser.class);
+        } catch (Exception e) {
+            log.warn("Failed to convert session user data to SocketUser: {}", e.getMessage());
+            return null;
+        }
     }
     
     private String getUserId(SocketIOClient client) {

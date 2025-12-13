@@ -65,8 +65,6 @@ public class SocketIOConfig {
         config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
         config.setStoreFactory(new RedissonStoreFactory(redissonClient));
 
-        // 중요: MemoryStoreFactory 대신 RedissonStoreFactory 사용
-        config.setStoreFactory(new RedissonStoreFactory(redissonClient));
         log.info("Socket.IO StoreFactory set to RedissonStoreFactory (Redis)");
 
         log.info("Socket.IO server configured on {}:{} with {} boss, {} worker threads",
