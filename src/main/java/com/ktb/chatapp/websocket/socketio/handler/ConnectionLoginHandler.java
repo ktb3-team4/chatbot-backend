@@ -166,17 +166,15 @@ public class ConnectionLoginHandler {
         if (socketUser == null) {
             return;
         }
-        String existingSocketId = socketUser.socketId();
-        SocketIOClient existingClient = socketIOServer.getClient(UUID.fromString(existingSocketId));
-        if (existingClient == null) {
-            return;
-        }
+
+        String userRoom = "user:" + userId;
+        var roomOps = socketIOServer.getRoomOperations(userRoom);
 
         // NullPointerException 방지: User-Agent 헤더 값을 미리 추출하고 null 체크를 추가합니다.
         String userAgent = client.getHandshakeData().getHttpHeaders().get("User-Agent");
 
-        // Send duplicate login notification
-        existingClient.sendEvent(DUPLICATE_LOGIN, Map.of(
+        // Send duplicate login notification to all existing connections for this user (cluster-safe)
+        roomOps.sendEvent(DUPLICATE_LOGIN, Map.of(
                 "type", "new_login_attempt",
                 // User-Agent가 null인 경우 "Unknown Device"로 대체
                 "deviceInfo", userAgent != null ? userAgent : "Unknown Device",
@@ -186,7 +184,7 @@ public class ConnectionLoginHandler {
 
         CompletableFuture.runAsync(() -> {
             try {
-                existingClient.sendEvent(SESSION_ENDED, Map.of(
+                roomOps.sendEvent(SESSION_ENDED, Map.of(
                         "reason", "duplicate_login",
                         "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
                 ));
