@@ -13,11 +13,8 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
@@ -38,7 +35,6 @@ public class ConnectionLoginHandler {
     private final RoomJoinHandler roomJoinHandler;
     private final RoomLeaveHandler roomLeaveHandler;
     private final ObjectMapper objectMapper;
-    private final ThreadPoolTaskExecutor chatWorkerExecutor;
 
     public ConnectionLoginHandler(
             SocketIOServer socketIOServer,
@@ -47,44 +43,42 @@ public class ConnectionLoginHandler {
             RoomJoinHandler roomJoinHandler,
             RoomLeaveHandler roomLeaveHandler,
             MeterRegistry meterRegistry,
-            ObjectMapper objectMapper,
-            ThreadPoolTaskExecutor chatWorkerExecutor) {
+            ObjectMapper objectMapper) {
         this.socketIOServer = socketIOServer;
         this.connectedUsers = connectedUsers;
         this.userRooms = userRooms;
         this.roomJoinHandler = roomJoinHandler;
         this.roomLeaveHandler = roomLeaveHandler;
         this.objectMapper = objectMapper;
-        this.chatWorkerExecutor = chatWorkerExecutor;
 
         // Register gauge metric for concurrent users
         Gauge.builder("socketio.concurrent.users", connectedUsers::size)
                 .description("Current number of concurrent Socket.IO users")
                 .register(meterRegistry);
     }
-    
+
     /**
      * auth 처리가 선행되어야 해서 @OnConnect 대신 별도 메서드로 구현
      */
     public void onConnect(SocketIOClient client, SocketUser user) {
         String userId = user.id();
-        
+
         try {
             notifyDuplicateLogin(client, userId);
             client.set("user", user);
-            
+
             userRooms.get(userId).forEach(roomId -> {
                 // 재접속 시 기존 참여 방 재입장 처리
                 roomJoinHandler.handleJoinRoom(client, roomId);
             });
-            
+
             connectedUsers.set(userId, user);
 
             log.info("Socket.IO user connected: {} ({}) - Total concurrent users: {}",
                     getUserName(client), userId, connectedUsers.size());
 
             client.joinRooms(Set.of("user:" + userId, "room-list"));
-            
+
         } catch (Exception e) {
             log.error("Error handling Socket.IO connection", e);
             client.sendEvent(ERROR, Map.of(
@@ -92,22 +86,22 @@ public class ConnectionLoginHandler {
             ));
         }
     }
-    
+
     @OnDisconnect
     public void onDisconnect(SocketIOClient client) {
         String userId = getUserId(client);
         String userName = getUserName(client);
-        
+
         try {
             if (userId == null) {
                 return;
             }
-            
+
             userRooms.get(userId).forEach(roomId -> {
                 roomLeaveHandler.handleLeaveRoom(client, roomId);
             });
             String socketId = client.getSessionId().toString();
-            
+
             // 해당 사용자의 현재 활성 연결인 경우에만 정리
             var socketUser = connectedUsers.get(userId);
             if (socketUser != null && socketId.equals(socketUser.socketId())) {
@@ -119,7 +113,7 @@ public class ConnectionLoginHandler {
             client.leaveRooms(Set.of("user:" + userId, "room-list"));
             client.del("user");
             client.disconnect();
-            
+
             log.info("Socket.IO user disconnected: {} ({}) - Total concurrent users: {}",
                     userName, userId, connectedUsers.size());
         } catch (Exception e) {
@@ -128,9 +122,9 @@ public class ConnectionLoginHandler {
                 "message", "연결 종료 처리 중 오류가 발생했습니다."
             ));
         }
-        
+
     }
-    
+
     private SocketUser getUserDto(SocketIOClient client) {
         Object value = client.get("user");
         if (value == null) {
@@ -146,17 +140,17 @@ public class ConnectionLoginHandler {
             return null;
         }
     }
-    
+
     private String getUserId(SocketIOClient client) {
         SocketUser user = getUserDto(client);
         return user != null ? user.id() : null;
     }
-    
+
     private String getUserName(SocketIOClient client) {
         SocketUser user = getUserDto(client);
         return user != null ? user.name() : null;
     }
-    
+
     /**
      * TODO 멀티 클러스터에서 동작 안함 다중 노드의 경우 다른  노드에 접속된 사용자는 통보 불가함
      * socketIOServer.getRoomOperations("user:" + userId) 로 처리 변경.
@@ -166,15 +160,17 @@ public class ConnectionLoginHandler {
         if (socketUser == null) {
             return;
         }
-
-        String userRoom = "user:" + userId;
-        var roomOps = socketIOServer.getRoomOperations(userRoom);
+        String existingSocketId = socketUser.socketId();
+        SocketIOClient existingClient = socketIOServer.getClient(UUID.fromString(existingSocketId));
+        if (existingClient == null) {
+            return;
+        }
 
         // NullPointerException 방지: User-Agent 헤더 값을 미리 추출하고 null 체크를 추가합니다.
         String userAgent = client.getHandshakeData().getHttpHeaders().get("User-Agent");
 
-        // Send duplicate login notification to all existing connections for this user (cluster-safe)
-        roomOps.sendEvent(DUPLICATE_LOGIN, Map.of(
+        // Send duplicate login notification
+        existingClient.sendEvent(DUPLICATE_LOGIN, Map.of(
                 "type", "new_login_attempt",
                 // User-Agent가 null인 경우 "Unknown Device"로 대체
                 "deviceInfo", userAgent != null ? userAgent : "Unknown Device",
@@ -182,19 +178,17 @@ public class ConnectionLoginHandler {
                 "timestamp", System.currentTimeMillis()
         ));
 
-        CompletableFuture.runAsync(() -> {
+        new Thread(() -> {
             try {
-                roomOps.sendEvent(SESSION_ENDED, Map.of(
+                Thread.sleep(Duration.ofSeconds(10));
+                existingClient.sendEvent(SESSION_ENDED, Map.of(
                         "reason", "duplicate_login",
                         "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
                 ));
-            } catch (Exception e) {
-                log.error("Error sending duplicate login termination", e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Error in duplicate login notification thread", e);
             }
-        }, CompletableFuture.delayedExecutor(
-                Duration.ofSeconds(10).toSeconds(),
-                TimeUnit.SECONDS,
-                chatWorkerExecutor.getThreadPoolExecutor()
-        ));
+        }).start();
     }
 }
