@@ -7,6 +7,7 @@ import com.ktb.chatapp.dto.FetchMessagesResponse;
 import com.ktb.chatapp.model.Room;
 import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ public class MessageFetchHandler {
 
     private final RoomRepository roomRepository;
     private final MessageLoader messageLoader;
+    private final ObjectMapper objectMapper;
 
     @OnEvent(FETCH_PREVIOUS_MESSAGES)
     public void handleFetchMessages(SocketIOClient client, FetchMessagesRequest data) {
@@ -76,7 +78,18 @@ public class MessageFetchHandler {
     }
 
     private String getUserId(SocketIOClient client) {
-        var user = (SocketUser) client.get("user");
-        return user.id();
+        Object value = client.get("user");
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof SocketUser socketUser) {
+            return socketUser.id();
+        }
+        try {
+            return objectMapper.convertValue(value, SocketUser.class).id();
+        } catch (Exception e) {
+            log.warn("Failed to convert session user data to SocketUser: {}", e.getMessage());
+            return null;
+        }
     }
 }

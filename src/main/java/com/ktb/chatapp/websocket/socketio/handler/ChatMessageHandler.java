@@ -20,6 +20,7 @@ import com.ktb.chatapp.service.SessionValidationResult;
 import com.ktb.chatapp.service.RateLimitService;
 import com.ktb.chatapp.service.RateLimitCheckResult;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -50,6 +51,7 @@ public class ChatMessageHandler {
     private final BannedWordChecker bannedWordChecker;
     private final RateLimitService rateLimitService;
     private final MeterRegistry meterRegistry;
+    private final ObjectMapper objectMapper;
 
     @Qualifier("chatWorkerExecutor")
     private final ThreadPoolTaskExecutor chatWorkerExecutor;
@@ -62,7 +64,7 @@ public class ChatMessageHandler {
             return;
         }
 
-        var socketUser = (SocketUser) client.get("user");
+        SocketUser socketUser = getUser(client);
         if (socketUser == null) {
             client.sendEvent(ERROR, Map.of("code", "SESSION_EXPIRED", "message", "세션이 만료되었습니다."));
             return;
@@ -226,6 +228,22 @@ public class ChatMessageHandler {
         message.setMentions(messageContent.aiMentions());
 
         return message;
+    }
+
+    private SocketUser getUser(SocketIOClient client) {
+        Object value = client.get("user");
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof SocketUser socketUser) {
+            return socketUser;
+        }
+        try {
+            return objectMapper.convertValue(value, SocketUser.class);
+        } catch (Exception e) {
+            log.warn("Failed to convert session user data to SocketUser: {}", e.getMessage());
+            return null;
+        }
     }
 
     private MessageResponse createMessageResponse(Message message, User sender) {
