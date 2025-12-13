@@ -16,7 +16,7 @@ public class RedissonPubSubStore implements PubSubStore {
 
     @Override
     public void publish(PubSubType type, PubSubMessage msg) {
-        String name = "socketio:topic:" + type.toString();
+        String name = "socketio:topic:v3:" + type.toString();
         msg.setNodeId(nodeId);
         redisson.getTopic(name).publish(msg);
     }
@@ -26,7 +26,7 @@ public class RedissonPubSubStore implements PubSubStore {
     public <T extends PubSubMessage> void subscribe(PubSubType type,
                                                     PubSubListener<T> listener,
                                                     Class<T> clazz) {
-        String name = "socketio:topic:" + type.toString();
+        String name = "socketio:topic:v3:" + type.toString();
         RTopic topic = redisson.getTopic(name);
 
         topic.addListener(clazz, (channel, msg) -> {
@@ -40,7 +40,7 @@ public class RedissonPubSubStore implements PubSubStore {
 
     @Override
     public void unsubscribe(PubSubType type) {
-        String name = "socketio:topic:" + type.toString();
+        String name = "socketio:topic:v3:" + type.toString();
         redisson.getTopic(name).removeAllListeners();
     }
 
