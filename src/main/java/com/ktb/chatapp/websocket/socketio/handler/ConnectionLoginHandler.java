@@ -13,8 +13,11 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
@@ -35,6 +38,7 @@ public class ConnectionLoginHandler {
     private final RoomJoinHandler roomJoinHandler;
     private final RoomLeaveHandler roomLeaveHandler;
     private final ObjectMapper objectMapper;
+    private final ThreadPoolTaskExecutor chatWorkerExecutor;
 
     public ConnectionLoginHandler(
             SocketIOServer socketIOServer,
@@ -43,13 +47,15 @@ public class ConnectionLoginHandler {
             RoomJoinHandler roomJoinHandler,
             RoomLeaveHandler roomLeaveHandler,
             MeterRegistry meterRegistry,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ThreadPoolTaskExecutor chatWorkerExecutor) {
         this.socketIOServer = socketIOServer;
         this.connectedUsers = connectedUsers;
         this.userRooms = userRooms;
         this.roomJoinHandler = roomJoinHandler;
         this.roomLeaveHandler = roomLeaveHandler;
         this.objectMapper = objectMapper;
+        this.chatWorkerExecutor = chatWorkerExecutor;
 
         // Register gauge metric for concurrent users
         Gauge.builder("socketio.concurrent.users", connectedUsers::size)
@@ -165,26 +171,32 @@ public class ConnectionLoginHandler {
         if (existingClient == null) {
             return;
         }
-        
+
+        // NullPointerException 방지: User-Agent 헤더 값을 미리 추출하고 null 체크를 추가합니다.
+        String userAgent = client.getHandshakeData().getHttpHeaders().get("User-Agent");
+
         // Send duplicate login notification
         existingClient.sendEvent(DUPLICATE_LOGIN, Map.of(
                 "type", "new_login_attempt",
-                "deviceInfo", client.getHandshakeData().getHttpHeaders().get("User-Agent"),
+                // User-Agent가 null인 경우 "Unknown Device"로 대체
+                "deviceInfo", userAgent != null ? userAgent : "Unknown Device",
                 "ipAddress", client.getRemoteAddress().toString(),
                 "timestamp", System.currentTimeMillis()
         ));
-        
-        new Thread(() -> {
+
+        CompletableFuture.runAsync(() -> {
             try {
-                Thread.sleep(Duration.ofSeconds(10));
                 existingClient.sendEvent(SESSION_ENDED, Map.of(
                         "reason", "duplicate_login",
                         "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
                 ));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("Error in duplicate login notification thread", e);
+            } catch (Exception e) {
+                log.error("Error sending duplicate login termination", e);
             }
-        }).start();
+        }, CompletableFuture.delayedExecutor(
+                Duration.ofSeconds(10).toSeconds(),
+                TimeUnit.SECONDS,
+                chatWorkerExecutor.getThreadPoolExecutor()
+        ));
     }
 }
