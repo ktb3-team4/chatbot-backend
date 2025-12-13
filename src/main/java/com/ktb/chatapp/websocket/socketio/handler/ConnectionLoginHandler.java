@@ -166,10 +166,14 @@ public class ConnectionLoginHandler {
             return;
         }
 
+        // NullPointerException 방지: User-Agent 헤더 값을 미리 추출하고 null 체크를 추가합니다.
+        String userAgent = client.getHandshakeData().getHttpHeaders().get("User-Agent");
+
         // Send duplicate login notification
         existingClient.sendEvent(DUPLICATE_LOGIN, Map.of(
                 "type", "new_login_attempt",
-                "deviceInfo", client.getHandshakeData().getHttpHeaders().get("User-Agent"),
+                // User-Agent가 null인 경우 "Unknown Device"로 대체
+                "deviceInfo", userAgent != null ? userAgent : "Unknown Device",
                 "ipAddress", client.getRemoteAddress().toString(),
                 "timestamp", System.currentTimeMillis()
         ));
