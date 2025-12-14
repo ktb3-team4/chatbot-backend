@@ -2,6 +2,7 @@ package com.ktb.chatapp.service;
 
 import com.ktb.chatapp.model.Session;
 import com.ktb.chatapp.service.session.SessionStore;
+import com.ktb.chatapp.service.session.SessionRedisStore;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import static com.ktb.chatapp.model.Session.SESSION_TTL;
 public class SessionService {
 
     private final SessionStore sessionStore;
+    private final SessionRedisStore sessionRedisStore;
     public static final long SESSION_TTL_SEC = DurationStyle.detectAndParse(SESSION_TTL).getSeconds();
     private static final long SESSION_TIMEOUT = SESSION_TTL_SEC * 1000;
 
@@ -39,13 +41,11 @@ public class SessionService {
 
     public SessionCreationResult createSession(String userId, SessionMetadata metadata) {
         try {
-            //removeAllUserSessions(userId);
 
             String sessionId = generateSessionId();
             long now = Instant.now().toEpochMilli();
 
             Session session = Session.builder()
-                    .id(existingSession.map(Session::getId).orElse(null))
                     .userId(userId)
                     .sessionId(sessionId)
                     .createdAt(now)
@@ -77,16 +77,16 @@ public class SessionService {
                 return SessionValidationResult.invalid("INVALID_PARAMETERS", "유효하지 않은 세션 파라미터");
             }
 
-            Session session = sessionStore.findByUserId(userId).orElse(null);
+            Session session = sessionRedisStore.findBySessionId(sessionId).orElse(null);
 
             if (session == null) {
-                log.warn("No session found for userId: {}", userId);
+                log.warn("No session found for sessionId: {}", sessionId);
                 return SessionValidationResult.invalid("INVALID_SESSION", "세션을 찾을 수 없습니다.");
             }
 
-            if (!sessionId.equals(session.getSessionId())) {
-                log.warn("Session ID mismatch for userId: {}. Provided: {}, Expected: {}", userId, sessionId, session.getSessionId());
-                return SessionValidationResult.invalid("INVALID_SESSION", "잘못된 세션 ID입니다.");
+            if (!userId.equals(session.getUserId())) {
+                log.warn("User ID mismatch for sessionId: {}. Provided: {}, Expected: {}", sessionId, userId, session.getUserId());
+                return SessionValidationResult.invalid("INVALID_SESSION", "잘못된 사용자 ID입니다.");
             }
 
             long now = Instant.now().toEpochMilli();
@@ -107,26 +107,8 @@ public class SessionService {
 
     public void updateLastActivity(String userId) {
         try {
-            SessionData activeSession = getActiveSession(userId);
+            log.warn("updateLastActivity called with userId only. This feature is unsupported in multi-session model and will not update any session activity for userId: {}", userId);
 
-            if (activeSession != null) {
-                long now = Instant.now().toEpochMilli();
-
-                if (now - activeSession.getLastActivity() < ACTIVITY_UPDATE_THRESHOLD) {
-                    return;
-                }
-
-                Session session = Session.builder()
-                        .userId(userId)
-                        .sessionId(activeSession.getSessionId())
-                        .createdAt(activeSession.getCreatedAt())
-                        .lastActivity(now)
-                        .metadata(activeSession.getMetadata())
-                        .expiresAt(Instant.now().plusSeconds(SESSION_TTL_SEC)) // TTL 갱신
-                        .build();
-
-                sessionStore.save(session);
-            }
         } catch (Exception e) {
             log.error("Failed to update session activity for user: {}", userId, e);
         }
@@ -135,9 +117,9 @@ public class SessionService {
     public void removeSession(String userId, String sessionId) {
         try {
             if (sessionId != null) {
-                sessionStore.delete(userId, sessionId);
+                sessionStore.delete(userId, sessionId); // RedisStore에서 sessionId로 삭제됨
             } else {
-                sessionStore.deleteAll(userId);
+                sessionStore.deleteAll(userId); // RedisStore에서 no-op 처리됨
             }
         } catch (Exception e) {
             log.error("Session removal error for userId: {}, sessionId: {}", userId, sessionId, e);
@@ -159,18 +141,8 @@ public class SessionService {
     }
 
     SessionData getActiveSession(String userId) {
-        try {
-            Session session = sessionStore.findByUserId(userId).orElse(null);
-
-            if (session == null) {
-                return null;
-            }
-
-            return toSessionData(session);
-        } catch (Exception e) {
-            log.error("Get active session error for userId: {}", userId, e);
-            return null;
-        }
+        log.warn("getActiveSession called with userId only. This method is invalid in multi-session model. Returning null for userId: {}", userId);
+        return null;
     }
 
     @Async("chatWorkerExecutor")

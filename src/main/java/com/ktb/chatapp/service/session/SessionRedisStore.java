@@ -21,35 +21,36 @@ public class SessionRedisStore implements SessionStore {
     private static final String KEY_PREFIX = "session:";
     private static final Duration SESSION_TTL = Duration.ofHours(24); // 세션 만료 24시간
 
-    private String getKey(String userId) {
-        return KEY_PREFIX + userId;
+    private String getKey(String sessionId) {
+        return KEY_PREFIX + sessionId;
     }
 
     @Override
     public Optional<Session> findByUserId(String userId) {
-        Session session = sessionRedisTemplate.opsForValue().get(getKey(userId));
+        log.warn("findByUserId called, which is deprecated in multi-session model. Returning empty for userId: {}", userId);
+        return Optional.empty();
+    }
+
+    public Optional<Session> findBySessionId(String sessionId) {
+        Session session = sessionRedisTemplate.opsForValue().get(getKey(sessionId));
         return Optional.ofNullable(session);
     }
 
     @Override
     public Session save(Session session) {
-        String key = getKey(session.getUserId());
+        String key = getKey(session.getSessionId());
         sessionRedisTemplate.opsForValue().set(key, session, SESSION_TTL);
         return session;
     }
 
     @Override
     public void delete(String userId, String sessionId) {
-        String key = getKey(userId);
-        Session session = sessionRedisTemplate.opsForValue().get(key);
-
-        if (session != null && sessionId.equals(session.getSessionId())) {
-            sessionRedisTemplate.delete(key);
-        }
+        String key = getKey(sessionId);
+        sessionRedisTemplate.delete(key);
     }
 
     @Override
     public void deleteAll(String userId) {
-        sessionRedisTemplate.delete(getKey(userId));
+        log.warn("deleteAll(userId) called, which is inefficient/unsupported in the multi-session Redis key structure. No action taken for userId: {}", userId);
     }
 }
