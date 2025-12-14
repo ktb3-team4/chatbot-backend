@@ -2,6 +2,7 @@ package com.ktb.chatapp.controller;
 
 import com.ktb.chatapp.dto.*;
 import com.ktb.chatapp.event.SessionEndedEvent;
+import com.ktb.chatapp.exception.SessionExpiredException;
 import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.JwtService;
@@ -243,7 +244,7 @@ public class AuthController {
                 String userId = (String) details.get("userId");
                 
                 if (userId != null) {
-                    sessionService.removeSession(userId, sessionId);
+                    sessionService.removeSessionWithLock(userId, sessionId);
                     
                     // Publish event for session ended
                     eventPublisher.publishEvent(new SessionEndedEvent(
@@ -358,22 +359,14 @@ public class AuthController {
             }
 
 
-            // 세션 유효성 검증
             var user = userOpt.get();
-            if (!sessionService.validateSession(user.getId(), sessionId).isValid()) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(new TokenRefreshResponse(false, "만료된 세션입니다.", null, null));
-            }
-
-            // 세션 갱신 - 새로운 세션 ID 생성
-            sessionService.removeSession(user.getId(), sessionId);
             SessionMetadata metadata = new SessionMetadata(
                     request.getHeader("User-Agent"),
                     getClientIpAddress(request),
                     request.getHeader("User-Agent")
             );
 
-            SessionCreationResult newSessionInfo = sessionService.createSession(user.getId(), metadata);
+            SessionCreationResult newSessionInfo = sessionService.refreshSession(user.getId(), sessionId, metadata);
 
             // 새로운 토큰과 세션 ID 생성
             String newToken = jwtService.generateToken(
@@ -383,6 +376,13 @@ public class AuthController {
             );
             return ResponseEntity.ok(new TokenRefreshResponse(true, "토큰이 갱신되었습니다.", newToken, newSessionInfo.getSessionId()));
 
+        } catch (SessionExpiredException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new TokenRefreshResponse(false, e.getMessage(), null, null));
+        } catch (IllegalStateException e) {
+            log.warn("Token refresh lock acquisition failed: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(new TokenRefreshResponse(false, "토큰 갱신 요청이 많습니다. 잠시 후 다시 시도하세요.", null, null));
         } catch (Exception e) {
             log.error("Token refresh error: ", e);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
