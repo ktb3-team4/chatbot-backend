@@ -31,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
@@ -53,6 +54,9 @@ public class ChatMessageHandler {
     private final RateLimitService rateLimitService;
     private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper;
+
+    @Value("${chatapp.banned-word.max-length:2000}")
+    private int bannedWordMaxLength;
 
     @Qualifier("chatWorkerExecutor")
     private final ThreadPoolTaskExecutor chatWorkerExecutor;
@@ -120,7 +124,16 @@ public class ChatMessageHandler {
 
             MessageContent messageContent = data.getParsedContent();
 
-            if (bannedWordChecker.containsBannedWord(messageContent.getTrimmedContent())) {
+            String trimmedContent = messageContent.getTrimmedContent();
+
+            if (trimmedContent.length() > bannedWordMaxLength) {
+                recordError("message_too_long");
+                client.sendEvent(ERROR, Map.of("code", "MESSAGE_TOO_LONG", "message", "메시지가 너무 깁니다."));
+                timerSample.stop(createTimer("error", "message_too_long"));
+                return;
+            }
+
+            if (bannedWordChecker.containsBannedWord(trimmedContent)) {
                 recordError("banned_word");
                 client.sendEvent(ERROR, Map.of("code", "MESSAGE_REJECTED", "message", "금칙어가 포함된 메시지는 전송할 수 없습니다."));
                 timerSample.stop(createTimer("error", "banned_word"));

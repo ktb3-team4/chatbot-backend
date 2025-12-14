@@ -18,13 +18,16 @@ public class BannedWordConfig {
 
     private final ApplicationContext applicationContext;
     private final String bannedWordLocation;
+    private final int bannedWordMaxLength;
 
     public BannedWordConfig(
             ApplicationContext applicationContext,
             @Value("${chatapp.banned-word.location:classpath:fake_banned_words_10k.txt}")
-                    String bannedWordLocation) {
+                    String bannedWordLocation,
+            @Value("${chatapp.banned-word.max-length:2000}") int bannedWordMaxLength) {
         this.applicationContext = applicationContext;
         this.bannedWordLocation = bannedWordLocation;
+        this.bannedWordMaxLength = bannedWordMaxLength;
     }
 
     @Bean
@@ -54,6 +57,6 @@ public class BannedWordConfig {
                     "Banned word dictionary at " + bannedWordLocation + " must not be empty.");
         }
 
-        return new BannedWordChecker(words);
+        return new BannedWordChecker(words, bannedWordMaxLength);
     }
 }
