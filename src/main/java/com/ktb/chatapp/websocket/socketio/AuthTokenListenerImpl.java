@@ -9,8 +9,6 @@ import com.ktb.chatapp.service.SessionService;
 import com.ktb.chatapp.service.SessionValidationResult;
 import com.ktb.chatapp.service.UserService;
 import com.ktb.chatapp.websocket.socketio.handler.ConnectionLoginHandler;
-import org.redisson.api.RBucket;
-import org.redisson.api.RedissonClient;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,10 +32,6 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
     private final UserService userService;
     private final ObjectProvider<ConnectionLoginHandler> socketIOChatHandlerProvider;
     private final ConnectedUsers connectedUsers;
-    private final RedissonClient redissonClient;
-
-    private static final String AUTH_BACKOFF_KEY_PREFIX = "socketio:auth:backoff:";
-    private static final long AUTH_BACKOFF_MS = 1500;
 
     @Override
     public AuthTokenResult getAuthTokenResult(Object _authToken, SocketIOClient client) {
@@ -52,19 +46,11 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
                 return new AuthTokenResult(false, "Authentication error");
             }
 
-            if (isBackoffActive(sessionId)) {
-                return new AuthTokenResult(false, Map.of(
-                        "message", "Retry after refresh",
-                        "code", "AUTH_BACKOFF"
-                ));
-            }
-
             String userId;
             try {
                 userId = jwtService.extractUserId(token);
             } catch (JwtException e) {
                 log.warn("Socket.IO token validation failed: {}", e.getMessage());
-                activateBackoff(sessionId);
                 return new AuthTokenResult(false, Map.of("message", "Invalid token"));
             }
 
@@ -75,7 +61,6 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
             if (!validationResult.isValid()) {
                 log.warn("Session validation failed: {} - {}", validationResult.getError(), validationResult.getMessage());
                 connectedUsers.del(userId);
-                activateBackoff(sessionId);
                 return new AuthTokenResult(false, Map.of(
                         "message", validationResult.getMessage(),
                         "code", validationResult.getError()
@@ -100,16 +85,4 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
         }
     }
 
-    private boolean isBackoffActive(String sessionId) {
-        if (sessionId == null) return false;
-        RBucket<Boolean> bucket = redissonClient.getBucket(AUTH_BACKOFF_KEY_PREFIX + sessionId);
-        Boolean val = bucket.get();
-        return val != null && val;
-    }
-
-    private void activateBackoff(String sessionId) {
-        if (sessionId == null) return;
-        RBucket<Boolean> bucket = redissonClient.getBucket(AUTH_BACKOFF_KEY_PREFIX + sessionId);
-        bucket.set(true, AUTH_BACKOFF_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
-    }
 }
