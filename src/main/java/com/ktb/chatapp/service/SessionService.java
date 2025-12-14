@@ -28,7 +28,7 @@ public class SessionService {
     public static final long SESSION_TTL_SEC = DurationStyle.detectAndParse(SESSION_TTL).getSeconds();
     private static final long SESSION_TIMEOUT = SESSION_TTL_SEC * 1000;
 
-    private static final long ACTIVITY_UPDATE_THRESHOLD = 10 * 60 * 1000;
+    private static final long ACTIVITY_UPDATE_THRESHOLD = 30 * 60 * 1000;
 
     private String getSessionLockKey(String sessionId) {
         return "lock:session:" + sessionId;

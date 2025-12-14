@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -93,7 +94,7 @@ public class ChatMessageHandler {
                 return;
             }
 
-            RateLimitCheckResult rateLimitResult = rateLimitService.checkRateLimit(socketUser.id(), 10000, Duration.ofMinutes(1));
+            RateLimitCheckResult rateLimitResult = rateLimitService.checkRateLimit(socketUser.id(), 500000, Duration.ofMinutes(1));
             if (!rateLimitResult.allowed()) {
                 recordError("rate_limit_exceeded");
                 client.sendEvent(ERROR, Map.of(
@@ -142,19 +143,24 @@ public class ChatMessageHandler {
 
             String messageType = data.getMessageType();
 
-            Message message = switch (messageType) {
+            MessageWithFile messageWithFile = switch (messageType) {
                 case "file" -> handleFileMessage(roomId, sender, messageContent, data.getFileData());
-                case "text" -> handleTextMessage(roomId, sender, messageContent);
+                case "text" -> new MessageWithFile(handleTextMessage(roomId, sender, messageContent), null);
                 default -> throw new IllegalArgumentException("Unsupported message type: " + messageType);
             };
 
-            if (message == null) {
+            if (messageWithFile.message() == null) {
                 timerSample.stop(createTimer("ignored", messageType));
                 return;
             }
 
             CompletableFuture
-                    .supplyAsync(() -> messageRepository.save(message), chatPersistenceExecutor)
+                    .supplyAsync(() -> {
+                        if (messageWithFile.file() != null) {
+                            fileRepository.save(messageWithFile.file());
+                        }
+                        return messageRepository.save(messageWithFile.message());
+                    }, chatPersistenceExecutor)
                     .thenAccept(savedMessage -> {
                         socketIOServer.getRoomOperations(roomId)
                                 .sendEvent(MESSAGE, createMessageResponse(savedMessage, sender));
@@ -180,7 +186,7 @@ public class ChatMessageHandler {
         }
     }
 
-    private Message handleFileMessage(String roomId, User sender, MessageContent messageContent, Map<String, Object> fileData) {
+    private MessageWithFile handleFileMessage(String roomId, User sender, MessageContent messageContent, Map<String, Object> fileData) {
         if (fileData == null) {
             throw new IllegalArgumentException("파일 데이터가 올바르지 않습니다.");
         }
@@ -199,6 +205,7 @@ public class ChatMessageHandler {
 
         // 기존에는 ID로 조회했지만, 이제는 받은 정보로 새로 생성합니다.
         File newFile = File.builder()
+                .id(UUID.randomUUID().toString())
                 .filename(filename)
                 .originalname(originalname)
                 .mimetype(mimetype)
@@ -207,8 +214,6 @@ public class ChatMessageHandler {
                 .user(sender.getId())   // 업로더 ID
                 .uploadDate(LocalDateTime.now())
                 .build();
-
-        File savedFile = fileRepository.save(newFile); // DB에 저장하고 ID 생성
 
         // 3. Message 생성 및 파일 정보 연결
         Message message = new Message();
@@ -219,19 +224,19 @@ public class ChatMessageHandler {
         message.setSenderProfileImage(sender.getProfileImage());
 
         message.setType(MessageType.file);
-        message.setFileId(savedFile.getId());
+        message.setFileId(newFile.getId());
         message.setContent(messageContent.getTrimmedContent());
         message.setTimestamp(LocalDateTime.now());
         message.setMentions(messageContent.aiMentions());
 
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("fileType", savedFile.getMimetype());
-        metadata.put("fileSize", savedFile.getSize());
-        metadata.put("originalName", savedFile.getOriginalname());
-        metadata.put("url", savedFile.getPath());
+        metadata.put("fileType", newFile.getMimetype());
+        metadata.put("fileSize", newFile.getSize());
+        metadata.put("originalName", newFile.getOriginalname());
+        metadata.put("url", newFile.getPath());
         message.setMetadata(metadata);
 
-        return message;
+        return new MessageWithFile(message, newFile);
     }
 
     private Message handleTextMessage(String roomId, User sender, MessageContent messageContent) {
@@ -253,6 +258,8 @@ public class ChatMessageHandler {
 
         return message;
     }
+
+    private record MessageWithFile(Message message, File file) {}
 
     private SocketUser getUser(SocketIOClient client) {
         Object value = client.get("user");
