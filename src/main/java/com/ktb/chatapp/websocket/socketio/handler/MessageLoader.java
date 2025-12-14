@@ -74,12 +74,16 @@ public class MessageLoader {
             int limit,
             LocalDateTime before,
             String userId) {
-        Pageable pageable = PageRequest.of(0, limit, Sort.by("timestamp").descending());
+        int fetchLimit = limit + 1;
+        Pageable pageable = PageRequest.of(0, fetchLimit, Sort.by("timestamp").descending());
 
         Slice<Message> messageSlice = messageRepository
                 .findByRoomIdAndIsDeletedAndTimestampBefore(roomId, false, before, pageable);
 
-        List<Message> messages = messageSlice.getContent();
+        List<Message> fetchedMessages = messageSlice.getContent();
+        boolean hasMore = fetchedMessages.size() > limit;
+
+        List<Message> messages = hasMore ? fetchedMessages.subList(0, limit) : fetchedMessages;
         List<Message> sortedMessages = messages.reversed();
 
         if (userId != null && !sortedMessages.isEmpty()) {
@@ -90,8 +94,6 @@ public class MessageLoader {
         List<MessageResponse> messageResponses = sortedMessages.stream()
                 .map(messageResponseMapper::mapToMessageResponse)
                 .toList();
-
-        boolean hasMore = messageSlice.hasNext();
 
         return FetchMessagesResponse.builder()
                 .messages(messageResponses)
