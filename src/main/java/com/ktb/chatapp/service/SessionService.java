@@ -45,7 +45,6 @@ public class SessionService {
             long now = Instant.now().toEpochMilli();
 
             Session session = Session.builder()
-                    .id(existingSession.map(Session::getId).orElse(null))
                     .userId(userId)
                     .sessionId(sessionId)
                     .createdAt(now)
