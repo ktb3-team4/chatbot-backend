@@ -14,7 +14,10 @@ import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.MessageReadStatusService;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -52,6 +55,8 @@ public class MessageReadHandler {
                 return;
             }
 
+            List<String> messageIds = data.getMessageIds().stream().distinct().toList();
+
             // 첫 번째 메시지로 채팅방 ID 조회 (모든 메시지가 같은 방이라고 가정)
             String roomId = messageRepository.findById(data.getMessageIds().getFirst())
                     .map(Message::getRoomId).orElse(null);
@@ -73,13 +78,26 @@ public class MessageReadHandler {
                 return;
             }
 
-            messageReadStatusService.updateReadStatus(data.getMessageIds(), userId);
+            var messages = messageRepository.findAllById(messageIds);
+            Set<String> senderIds = messages.stream()
+                    .map(Message::getSenderId)
+                    .filter(s -> s != null && !s.isBlank())
+                    .collect(Collectors.toSet());
 
-            MessagesReadResponse response = new MessagesReadResponse(userId, data.getMessageIds());
+            if (senderIds.isEmpty()) {
+                client.sendEvent(ERROR, Map.of("message", "No message senders found"));
+                return;
+            }
 
-            // Broadcast to room
-            socketIOServer.getRoomOperations(roomId)
-                    .sendEvent(MESSAGES_READ, response);
+            messageReadStatusService.updateReadStatus(messageIds, userId);
+
+            MessagesReadResponse response = new MessagesReadResponse(userId, messageIds);
+
+            // Broadcast only to original senders to avoid room-wide ACK storms
+            senderIds.forEach(senderId ->
+                    socketIOServer.getRoomOperations("user:" + senderId)
+                            .sendEvent(MESSAGES_READ, response)
+            );
 
         } catch (Exception e) {
             log.error("Error handling markMessagesAsRead", e);
