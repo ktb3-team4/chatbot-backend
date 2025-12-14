@@ -12,19 +12,22 @@ import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
+import com.ktb.chatapp.service.RoomService;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import com.ktb.chatapp.websocket.socketio.UserRooms;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List; // List 임포트 추가
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set; // Set 임포트 추가
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
@@ -46,33 +49,47 @@ public class RoomLeaveHandler {
     private final UserRooms userRooms;
     private final MessageResponseMapper messageResponseMapper;
     private final ObjectMapper objectMapper;
+    private final RoomService roomService;
+
+    @Qualifier("chatWorkerExecutor")
+    private final ThreadPoolTaskExecutor chatWorkerExecutor;
 
     @OnEvent(LEAVE_ROOM)
     public void handleLeaveRoom(SocketIOClient client, String roomId) {
+        String userId = getUserId(client);
+
+        if (userId == null) {
+            client.sendEvent(ERROR, Map.of("message", "Unauthorized"));
+            return;
+        }
+
+        if (!userRooms.isInRoom(userId, roomId)) {
+            log.debug("User {} is not in room {}", userId, roomId);
+            return;
+        }
+
+        // 핵심 로직을 비동기 작업자 스레드에 위임 (논블로킹)
+        chatWorkerExecutor.execute(() -> processLeaveRoom(client, roomId, userId));
+    }
+
+    // 블로킹 I/O 작업을 수행하는 비동기 메서드
+    public void processLeaveRoom(SocketIOClient client, String roomId, String userId) {
+        String userName = getUserName(client);
+
         try {
-            String userId = getUserId(client);
-            String userName = getUserName(client);
-
-            if (userId == null) {
-                client.sendEvent(ERROR, Map.of("message", "Unauthorized"));
-                return;
-            }
-
-            if (!userRooms.isInRoom(userId, roomId)) {
-                log.debug("User {} is not in room {}", userId, roomId);
-                return;
-            }
-
+            Optional<Room> roomOpt = roomService.findRoomById(roomId);
             User user = userRepository.findById(userId).orElse(null);
-            Room room = roomRepository.findById(roomId).orElse(null);
+            Room room = roomOpt.orElse(null);
 
             if (user == null || room == null) {
                 log.warn("Room {} not found or user {} has no access", roomId, userId);
                 return;
             }
 
+            // DB write (blocking)
             roomRepository.removeParticipant(roomId, userId);
 
+            // Redis write (blocking)
             client.leaveRoom(roomId);
             userRooms.remove(userId, roomId);
 
@@ -89,10 +106,11 @@ public class RoomLeaveHandler {
                     ));
 
         } catch (Exception e) {
-            log.error("Error handling leaveRoom", e);
+            log.error("Error processing leaveRoom", e);
             client.sendEvent(ERROR, Map.of("message", "채팅방 퇴장 중 오류가 발생했습니다."));
         }
     }
+
 
     private void sendSystemMessage(String roomId, String content) {
         try {
@@ -123,7 +141,8 @@ public class RoomLeaveHandler {
     }
 
     private void broadcastParticipantList(String roomId) {
-        Optional<Room> roomOpt = roomRepository.findById(roomId);
+        // [수정: RoomService를 사용하여 캐시된 방 정보 조회]
+        Optional<Room> roomOpt = roomService.findRoomById(roomId);
         if (roomOpt.isEmpty()) {
             return;
         }

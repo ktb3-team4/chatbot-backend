@@ -152,7 +152,6 @@ public class ConnectionLoginHandler {
     }
 
     /**
-     * TODO 멀티 클러스터에서 동작 안함 다중 노드의 경우 다른  노드에 접속된 사용자는 통보 불가함
      * socketIOServer.getRoomOperations("user:" + userId) 로 처리 변경.
      */
     private void notifyDuplicateLogin(SocketIOClient client, String userId) {
@@ -160,35 +159,28 @@ public class ConnectionLoginHandler {
         if (socketUser == null) {
             return;
         }
-        String existingSocketId = socketUser.socketId();
-        SocketIOClient existingClient = socketIOServer.getClient(UUID.fromString(existingSocketId));
-        if (existingClient == null) {
+
+        if (client.getSessionId().toString().equals(socketUser.socketId())) {
             return;
         }
 
-        // NullPointerException 방지: User-Agent 헤더 값을 미리 추출하고 null 체크를 추가합니다.
+        log.info("Duplicate login detected. Notifying existing session for user: {}", userId);
+
         String userAgent = client.getHandshakeData().getHttpHeaders().get("User-Agent");
 
-        // Send duplicate login notification
-        existingClient.sendEvent(DUPLICATE_LOGIN, Map.of(
-                "type", "new_login_attempt",
-                // User-Agent가 null인 경우 "Unknown Device"로 대체
-                "deviceInfo", userAgent != null ? userAgent : "Unknown Device",
-                "ipAddress", client.getRemoteAddress().toString(),
-                "timestamp", System.currentTimeMillis()
-        ));
+        socketIOServer.getRoomOperations("user:" + userId)
+                .sendEvent(DUPLICATE_LOGIN, Map.of(
+                        "type", "new_login_attempt",
+                        // User-Agent가 null인 경우 "Unknown Device"로 대체
+                        "deviceInfo", userAgent != null ? userAgent : "Unknown Device",
+                        "ipAddress", client.getRemoteAddress().toString(),
+                        "timestamp", System.currentTimeMillis()
+                ));
 
-        new Thread(() -> {
-            try {
-                Thread.sleep(Duration.ofSeconds(10));
-                existingClient.sendEvent(SESSION_ENDED, Map.of(
+        socketIOServer.getRoomOperations("user:" + userId)
+                .sendEvent(SESSION_ENDED, Map.of(
                         "reason", "duplicate_login",
                         "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
                 ));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("Error in duplicate login notification thread", e);
-            }
-        }).start();
     }
 }
