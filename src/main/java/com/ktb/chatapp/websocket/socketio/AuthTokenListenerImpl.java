@@ -49,6 +49,7 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
             try {
                 userId = jwtService.extractUserId(token);
             } catch (JwtException e) {
+                log.warn("Socket.IO token validation failed: {}", e.getMessage());
                 return new AuthTokenResult(false, Map.of("message", "Invalid token"));
             }
 
@@ -57,14 +58,17 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
                     sessionService.validateSession(userId, sessionId);
 
             if (!validationResult.isValid()) {
-                log.error("Session validation failed: {}", validationResult.getMessage());
-                return new AuthTokenResult(false, Map.of("message", "Invalid session"));
+                log.warn("Session validation failed: {} - {}", validationResult.getError(), validationResult.getMessage());
+                return new AuthTokenResult(false, Map.of(
+                        "message", validationResult.getMessage(),
+                        "code", validationResult.getError()
+                ));
             }
 
             // Load user from database
             User user = userService.findUserById(userId).orElse(null);
             if (user == null) {
-                log.error("User not found: {}", userId);
+                log.warn("User not found for Socket.IO auth: {}", userId);
                 return new AuthTokenResult(false, Map.of("message", "User not found"));
             }
 

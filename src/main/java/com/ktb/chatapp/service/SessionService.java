@@ -109,6 +109,11 @@ public class SessionService {
                 return SessionValidationResult.invalid("SESSION_EXPIRED", "세션이 만료되었습니다.");
             }
 
+            if (now - session.getLastActivity() >= ACTIVITY_UPDATE_THRESHOLD) {
+                session.setLastActivity(now);
+                sessionStore.save(session); // TTL refresh for active session
+            }
+
             SessionData sessionData = toSessionData(session);
             return SessionValidationResult.valid(sessionData);
 
