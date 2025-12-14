@@ -27,6 +27,7 @@ import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -55,6 +56,9 @@ public class ChatMessageHandler {
 
     @Qualifier("chatWorkerExecutor")
     private final ThreadPoolTaskExecutor chatWorkerExecutor;
+
+    @Qualifier("chatPersistenceExecutor")
+    private final ThreadPoolTaskExecutor chatPersistenceExecutor;
 
     @OnEvent(CHAT_MESSAGE)
     public void handleChatMessage(SocketIOClient client, ChatMessageRequest data) {
@@ -136,17 +140,24 @@ public class ChatMessageHandler {
                 return;
             }
 
-            Message savedMessage = messageRepository.save(message);
+            CompletableFuture
+                    .supplyAsync(() -> messageRepository.save(message), chatPersistenceExecutor)
+                    .thenAccept(savedMessage -> {
+                        socketIOServer.getRoomOperations(roomId)
+                                .sendEvent(MESSAGE, createMessageResponse(savedMessage, sender));
 
-            socketIOServer.getRoomOperations(roomId)
-                    .sendEvent(MESSAGE, createMessageResponse(savedMessage, sender));
+                        aiService.handleAIMentions(roomId, socketUser.id(), messageContent);
 
-            aiService.handleAIMentions(roomId, socketUser.id(), messageContent);
-
-            //sessionService.updateLastActivity(socketUser.id());
-
-            recordMessageSuccess(messageType);
-            timerSample.stop(createTimer("success", messageType));
+                        recordMessageSuccess(messageType);
+                        timerSample.stop(createTimer("success", messageType));
+                    })
+                    .exceptionally(e -> {
+                        recordError("exception");
+                        log.error("Message persistence error", e);
+                        client.sendEvent(ERROR, Map.of("code", "MESSAGE_ERROR", "message", "메시지 전송 중 오류가 발생했습니다."));
+                        timerSample.stop(createTimer("error", "exception"));
+                        return null;
+                    });
 
         } catch (Exception e) {
             recordError("exception");
