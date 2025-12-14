@@ -11,6 +11,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -104,8 +105,21 @@ public class ConnectionLoginHandler {
             var socketUser = connectedUsers.get(userId);
             if (socketUser != null && socketId.equals(socketUser.socketId())) {
                 connectedUsers.del(userId);
-            } else {
-                log.warn("Socket.IO disconnect: User {} has a different active connection. Skipping cleanup.", userId);
+            } else if (socketUser != null) {
+                boolean stale = false;
+                try {
+                    var otherClient = socketIOServer.getClient(UUID.fromString(socketUser.socketId()));
+                    stale = otherClient == null || !otherClient.isChannelOpen();
+                } catch (Exception ignored) {
+                    stale = true;
+                }
+
+                if (stale) {
+                    connectedUsers.del(userId);
+                    log.info("Socket.IO disconnect: cleaned stale connection entry for user {}", userId);
+                } else {
+                    log.info("Socket.IO disconnect: User {} has a different active connection. Skipping cleanup.", userId);
+                }
             }
 
             client.leaveRooms(Set.of("user:" + userId, "room-list"));
