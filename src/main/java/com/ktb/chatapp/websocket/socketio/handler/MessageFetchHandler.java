@@ -11,7 +11,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
@@ -30,21 +32,25 @@ public class MessageFetchHandler {
     private final MessageLoader messageLoader;
     private final ObjectMapper objectMapper;
 
+    @Qualifier("chatWorkerExecutor")
+    private final ThreadPoolTaskExecutor chatWorkerExecutor;
+
     @OnEvent(FETCH_PREVIOUS_MESSAGES)
     public void handleFetchMessages(SocketIOClient client, FetchMessagesRequest data) {
         String userId = getUserId(client);
-        String queueKey = data.roomId() + ":" + userId;
         if (userId == null) {
-            client.sendEvent(ERROR, Map.of(
-                    "code", "UNAUTHORIZED",
-                    "message", "인증이 필요합니다."
-            ));
+            client.sendEvent(ERROR, Map.of("code", "UNAUTHORIZED", "message", "인증이 필요합니다."));
             return;
         }
-        
+
+        chatWorkerExecutor.execute(() -> processFetchMessages(client, data, userId));
+    }
+    private void processFetchMessages(SocketIOClient client, FetchMessagesRequest data, String userId) {
+        final String roomId = data.roomId();
+
         try {
             // 권한 체크
-            Room room = roomRepository.findById(data.roomId()).orElse(null);
+            Room room = roomRepository.findById(roomId).orElse(null);
             if (room == null || !room.getParticipantIds().contains(userId)) {
                 client.sendEvent(ERROR, Map.of(
                         "code", "LOAD_ERROR",
@@ -55,20 +61,13 @@ public class MessageFetchHandler {
 
             client.sendEvent(MESSAGE_LOAD_START);
 
-            log.debug("Starting message load for user {} in room {}, limit: {}, before: {}",
-                    userId, data.roomId(), data.limit(), data.before());
-
-            log.debug("Loading messages for room {}", data.roomId());
+            // 메시지 로드 (블로킹 작업)
             FetchMessagesResponse result = messageLoader.loadMessages(data, userId);
-            
-            log.debug("Previous messages loaded - room: {}, count: {}, hasMore: {}",
-                    data.roomId(), result.getMessages().size(),
-                    result.isHasMore());
-            
+
             client.sendEvent(PREVIOUS_MESSAGES_LOADED, result);
 
         } catch (Exception e) {
-            log.error("Error handling fetchPreviousMessages", e);
+            log.error("Error processing fetchPreviousMessages for room {}", roomId, e);
             client.sendEvent(ERROR, Map.of(
                     "code", "LOAD_ERROR",
                     "message", e.getMessage() != null ?

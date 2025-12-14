@@ -7,6 +7,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.convert.DurationStyle;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import static com.ktb.chatapp.model.Session.SESSION_TTL;
@@ -44,6 +45,7 @@ public class SessionService {
             long now = Instant.now().toEpochMilli();
 
             Session session = Session.builder()
+                    .id(existingSession.map(Session::getId).orElse(null))
                     .userId(userId)
                     .sessionId(sessionId)
                     .createdAt(now)
@@ -169,5 +171,11 @@ public class SessionService {
             log.error("Get active session error for userId: {}", userId, e);
             return null;
         }
+    }
+
+    @Async("chatWorkerExecutor")
+    public void removeAllUserSessionsAsync(String userId) {
+        log.info("Async session removal started for userId: {}", userId);
+        removeAllUserSessions(userId);
     }
 }
