@@ -39,7 +39,8 @@ public class SessionService {
 
     public SessionCreationResult createSession(String userId, SessionMetadata metadata) {
         try {
-            var existingSession = sessionStore.findByUserId(userId);
+            //removeAllUserSessions(userId);
+
             String sessionId = generateSessionId();
             long now = Instant.now().toEpochMilli();
 
