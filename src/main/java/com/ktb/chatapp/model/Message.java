@@ -24,6 +24,7 @@ import java.util.Set;
  * Message 문서 모델 정의.
  * MongoDB 필드 이름과 인덱스를 명시한다.
  */
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -60,6 +61,7 @@ public class Message {
 
     // Mongo 문서 필드명 "file" 사용
     @Field("file")
+    @Indexed
     private String fileId;
 
     private AiType aiType;
