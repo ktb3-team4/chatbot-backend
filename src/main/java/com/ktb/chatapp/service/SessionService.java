@@ -38,7 +38,7 @@ public class SessionService {
 
     public SessionCreationResult createSession(String userId, SessionMetadata metadata) {
         try {
-            removeAllUserSessions(userId);
+            //removeAllUserSessions(userId);
 
             String sessionId = generateSessionId();
             long now = Instant.now().toEpochMilli();
