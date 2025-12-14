@@ -143,7 +143,7 @@ public class ChatMessageHandler {
 
             aiService.handleAIMentions(roomId, socketUser.id(), messageContent);
 
-            sessionService.updateLastActivity(socketUser.id());
+            //sessionService.updateLastActivity(socketUser.id());
 
             recordMessageSuccess(messageType);
             timerSample.stop(createTimer("success", messageType));

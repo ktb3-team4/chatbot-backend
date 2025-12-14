@@ -55,7 +55,7 @@ public class MessageReadStatusService {
     @Scheduled(fixedDelay = 5000)
     public void flushReadStatusToDb() {
         RSet<String> set = redissonClient.getSet(READ_STATUS_KEY, StringCodec.INSTANCE);
-        Set<String> popped = set.removeRandom(1000);
+        Set<String> popped = set.removeRandom(100);
 
         if (popped == null || popped.isEmpty()) {
             return;
