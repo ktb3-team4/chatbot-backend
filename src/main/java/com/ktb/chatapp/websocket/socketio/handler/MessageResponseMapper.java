@@ -8,6 +8,8 @@ import com.ktb.chatapp.repository.FileRepository;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Optional;
+
+import com.ktb.chatapp.service.FileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -17,7 +19,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class MessageResponseMapper {
 
-    private final FileRepository fileRepository;
+    private final FileService fileService;
 
     /**
      * Message 엔티티를 MessageResponse DTO로 변환
@@ -56,7 +58,7 @@ public class MessageResponseMapper {
 
         // 파일 정보 설정
         Optional.ofNullable(message.getFileId())
-                .flatMap(fileRepository::findById)
+                .flatMap(fileService::findFileMetadataById) // ⬅️ 캐싱된 서비스 메서드 사용
                 .map(FileResponse::from)
                 .ifPresent(builder::file);
 

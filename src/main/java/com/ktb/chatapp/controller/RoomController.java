@@ -7,6 +7,7 @@ import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.RoomService;
+import com.ktb.chatapp.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -38,7 +39,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/rooms")
 public class RoomController {
 
-    private final UserRepository userRepository;
+    private final UserService userService;
     private final MessageRepository messageRepository;
     private final RoomService roomService;
 
@@ -282,14 +283,16 @@ public class RoomController {
     }
 
     private RoomResponse mapToRoomResponse(Room room, String name) {
-        User creator = userRepository.findById(room.getCreator()).orElse(null);
+        User creator = userService.findUserById(room.getCreator()).orElse(null);
         if (creator == null) {
             throw new RuntimeException("Creator not found for room " + room.getId());
         }
         UserResponse creatorSummary = UserResponse.from(creator);
 
-        List<UserResponse> participantSummaries = userRepository.findAllById(room.getParticipantIds())
-                .stream()
+        List<UserResponse> participantSummaries = room.getParticipantIds().stream()
+                .map(userService::findUserById)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
                 .map(UserResponse::from)
                 .toList();
 

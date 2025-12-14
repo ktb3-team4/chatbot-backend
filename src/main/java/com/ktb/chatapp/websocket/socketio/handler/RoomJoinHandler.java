@@ -14,6 +14,7 @@ import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.RoomService;
+import com.ktb.chatapp.service.UserService;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import com.ktb.chatapp.websocket.socketio.UserRooms;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,6 +49,7 @@ public class RoomJoinHandler {
     private final RoomLeaveHandler roomLeaveHandler;
     private final ObjectMapper objectMapper;
     private final RoomService roomService;
+    private final UserService userService;
 
     @Qualifier("chatWorkerExecutor")
     private final ThreadPoolTaskExecutor chatWorkerExecutor;
@@ -69,7 +71,7 @@ public class RoomJoinHandler {
         String userName = getUserName(client);
 
         try {
-            if (userRepository.findById(userId).isEmpty()) {
+            if (userService.findUserById(userId).isEmpty()) {
                 client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "User not found"));
                 return;
             }
@@ -125,13 +127,12 @@ public class RoomJoinHandler {
             // 참가자 정보 조회
             List<UserResponse> participants = updatedRoomOpt.get().getParticipantIds()
                     .stream()
-                    .map(userRepository::findById)
+                    .map(userService::findUserById)
                     .filter(Optional::isPresent)
                     .map(Optional::get)
                     .map(UserResponse::from)
                     .toList();
 
-            // ... (생략: JoinRoomSuccessResponse 생성 및 전송)
             JoinRoomSuccessResponse response = JoinRoomSuccessResponse.builder()
                     .roomId(roomId)
                     .participants(participants)
