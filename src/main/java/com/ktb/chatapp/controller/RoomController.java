@@ -2,6 +2,7 @@ package com.ktb.chatapp.controller;
 
 import com.ktb.chatapp.annotation.RateLimit;
 import com.ktb.chatapp.dto.*;
+import com.ktb.chatapp.exception.RoomNotFoundException;
 import com.ktb.chatapp.model.Room;
 import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.MessageRepository;
@@ -24,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -205,14 +207,7 @@ public class RoomController {
     @GetMapping("/{roomId}")
     public ResponseEntity<?> getRoomById(@Parameter(description = "채팅방 ID", example = "60d5ec49f1b2c8b9e8c4f2a1") @PathVariable String roomId, Principal principal) {
         try {
-            Optional<Room> roomOpt = roomService.findRoomById(roomId);
-            if (roomOpt.isEmpty()) {
-                return ResponseEntity.status(404).body(
-                        StandardResponse.error("채팅방을 찾을 수 없습니다.")
-                );
-            }
-
-            Room room = roomOpt.get();
+            Room room = roomService.findRoomById(roomId);
             RoomResponse roomResponse = mapToRoomResponse(room, principal.getName());
 
             return ResponseEntity.ok(
@@ -222,6 +217,14 @@ public class RoomController {
                     )
             );
 
+        } catch (RoomNotFoundException e) {
+            return ResponseEntity.status(404).body(
+                    StandardResponse.error("채팅방을 찾을 수 없습니다.")
+            );
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(400).body(
+                    StandardResponse.error(e.getMessage())
+            );
         } catch (Exception e) {
             log.error("채팅방 조회 에러", e);
             return ResponseEntity.status(500).body(
@@ -252,11 +255,6 @@ public class RoomController {
         try {
             Room joinedRoom = roomService.joinRoom(roomId, joinRoomRequest.getPassword(), principal.getName());
 
-            if (joinedRoom == null) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(StandardResponse.error("채팅방을 찾을 수 없습니다."));
-            }
-
             RoomResponse roomResponse = mapToRoomResponse(joinedRoom, principal.getName());
 
             return ResponseEntity.ok(
@@ -266,8 +264,11 @@ public class RoomController {
                     )
             );
 
+        } catch (RoomNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(StandardResponse.error("채팅방을 찾을 수 없습니다."));
         } catch (RuntimeException e) {
-            if (e.getMessage().contains("비밀번호")) {
+            if (e.getMessage() != null && e.getMessage().contains("비밀번호")) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(StandardResponse.error("비밀번호가 일치하지 않습니다."));
             }

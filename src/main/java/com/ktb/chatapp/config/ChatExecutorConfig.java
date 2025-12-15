@@ -12,11 +12,12 @@ public class ChatExecutorConfig {
         int cores = Runtime.getRuntime().availableProcessors();
 
         ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
-        ex.setCorePoolSize(cores * 8);
-        ex.setMaxPoolSize(cores * 16);
-        ex.setQueueCapacity(20_000);
+        ex.setCorePoolSize(cores * 4);
+        ex.setMaxPoolSize(cores * 8);
+        ex.setQueueCapacity(2_000);
         ex.setThreadNamePrefix("chat-worker-");
         ex.setAllowCoreThreadTimeOut(true);
+        ex.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
         ex.initialize();
         return ex;
     }
@@ -26,11 +27,12 @@ public class ChatExecutorConfig {
         int cores = Runtime.getRuntime().availableProcessors();
 
         ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
-        ex.setCorePoolSize(cores * 8);
-        ex.setMaxPoolSize(cores * 16);
-        ex.setQueueCapacity(20_000);
+        ex.setCorePoolSize(cores * 4);
+        ex.setMaxPoolSize(cores * 8);
+        ex.setQueueCapacity(2_000);
         ex.setThreadNamePrefix("chat-persist-");
         ex.setAllowCoreThreadTimeOut(true);
+        ex.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
         ex.initialize();
         return ex;
     }

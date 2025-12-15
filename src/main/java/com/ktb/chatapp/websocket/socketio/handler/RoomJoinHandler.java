@@ -7,6 +7,7 @@ import com.ktb.chatapp.dto.FetchMessagesRequest;
 import com.ktb.chatapp.dto.FetchMessagesResponse;
 import com.ktb.chatapp.dto.JoinRoomSuccessResponse;
 import com.ktb.chatapp.dto.UserResponse;
+import com.ktb.chatapp.exception.RoomNotFoundException;
 import com.ktb.chatapp.model.Message;
 import com.ktb.chatapp.model.MessageType;
 import com.ktb.chatapp.model.Room;
@@ -20,6 +21,7 @@ import com.ktb.chatapp.websocket.socketio.UserRooms;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -64,7 +66,11 @@ public class RoomJoinHandler {
         }
 
         // 2. I/O와 블로킹이 발생하는 핵심 로직을 작업자 스레드에 위임하고 즉시 리턴
-        chatWorkerExecutor.execute(() -> processJoinRoom(client, roomId, userId));
+        try {
+            chatWorkerExecutor.execute(() -> processJoinRoom(client, roomId, userId));
+        } catch (RejectedExecutionException e) {
+            client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "현재 요청이 많아 방에 입장할 수 없습니다."));
+        }
     }
 
     private void processJoinRoom(SocketIOClient client, String roomId, String userId) {
@@ -76,9 +82,9 @@ public class RoomJoinHandler {
                 return;
             }
 
-            // [수정 1: RoomService를 사용하여 캐시된 방 정보 조회]
-            Optional<Room> roomOpt = roomService.findRoomById(roomId);
-            if (roomOpt.isEmpty()) {
+            try {
+                roomService.findRoomById(roomId);
+            } catch (IllegalArgumentException | RoomNotFoundException e) {
                 client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "채팅방을 찾을 수 없습니다."));
                 return;
             }
@@ -118,14 +124,16 @@ public class RoomJoinHandler {
             FetchMessagesResponse messageLoadResult = messageLoader.loadMessages(req, userId);
 
             // 업데이트된 room 다시 조회하여 최신 participantIds 가져오기 (RoomService 사용)
-            Optional<Room> updatedRoomOpt = roomService.findRoomById(roomId);
-            if (updatedRoomOpt.isEmpty()) {
+            Room updatedRoom;
+            try {
+                updatedRoom = roomService.findRoomById(roomId);
+            } catch (IllegalArgumentException | RoomNotFoundException e) {
                 client.sendEvent(JOIN_ROOM_ERROR, Map.of("message", "채팅방을 찾을 수 없습니다."));
                 return;
             }
 
             // 참가자 정보 조회
-            List<UserResponse> participants = updatedRoomOpt.get().getParticipantIds()
+            List<UserResponse> participants = updatedRoom.getParticipantIds()
                     .stream()
                     .map(userService::findUserById)
                     .filter(Optional::isPresent)

@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -79,7 +80,11 @@ public class ChatMessageHandler {
             return;
         }
 
-        chatWorkerExecutor.execute(() -> processMessageAsync(client, data, socketUser));
+        try {
+            chatWorkerExecutor.execute(() -> processMessageAsync(client, data, socketUser));
+        } catch (RejectedExecutionException e) {
+            client.sendEvent(ERROR, Map.of("code", "SERVER_BUSY", "message", "요청이 많아 처리가 지연되고 있습니다."));
+        }
     }
 
     private void processMessageAsync(SocketIOClient client, ChatMessageRequest data, SocketUser socketUser) {

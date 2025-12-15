@@ -9,6 +9,7 @@ import com.ktb.chatapp.dto.MessagesReadResponse;
 import com.ktb.chatapp.service.MessageReadStatusService;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -44,7 +45,11 @@ public class MessageReadHandler {
             return;
         }
 
-        chatWorkerExecutor.execute(() -> processMarkAsRead(data, userId));
+        try {
+            chatWorkerExecutor.execute(() -> processMarkAsRead(data, userId));
+        } catch (RejectedExecutionException e) {
+            log.warn("MarkAsRead rejected due to worker saturation for user {}", userId);
+        }
     }
 
     private void processMarkAsRead(MarkAsReadRequest data, String userId) {

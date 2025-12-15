@@ -10,6 +10,7 @@ import com.ktb.chatapp.model.Message;
 import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import java.util.Map;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -41,7 +42,11 @@ public class MessageReactionHandler {
         }
 
         // 핵심 로직을 비동기 작업자 스레드에 위임하여 Socket.IO 워커 스레드 블로킹 방지
-        chatWorkerExecutor.execute(() -> processMessageReaction(client, data, userId));
+        try {
+            chatWorkerExecutor.execute(() -> processMessageReaction(client, data, userId));
+        } catch (RejectedExecutionException e) {
+            client.sendEvent(ERROR, Map.of("message", "현재 요청이 많아 처리할 수 없습니다."));
+        }
     }
 
     // 블로킹 I/O를 수행하는 실제 비동기 처리 메소드 [추가]

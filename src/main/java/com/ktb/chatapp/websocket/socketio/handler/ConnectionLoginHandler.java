@@ -11,8 +11,11 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
@@ -33,6 +36,8 @@ public class ConnectionLoginHandler {
     private final RoomJoinHandler roomJoinHandler;
     private final RoomLeaveHandler roomLeaveHandler;
     private final ObjectMapper objectMapper;
+    @Qualifier("chatWorkerExecutor")
+    private final ThreadPoolTaskExecutor chatWorkerExecutor;
 
     public ConnectionLoginHandler(
             SocketIOServer socketIOServer,
@@ -41,13 +46,15 @@ public class ConnectionLoginHandler {
             RoomJoinHandler roomJoinHandler,
             RoomLeaveHandler roomLeaveHandler,
             MeterRegistry meterRegistry,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Qualifier("chatWorkerExecutor") ThreadPoolTaskExecutor chatWorkerExecutor) {
         this.socketIOServer = socketIOServer;
         this.connectedUsers = connectedUsers;
         this.userRooms = userRooms;
         this.roomJoinHandler = roomJoinHandler;
         this.roomLeaveHandler = roomLeaveHandler;
         this.objectMapper = objectMapper;
+        this.chatWorkerExecutor = chatWorkerExecutor;
 
         // Register gauge metric for concurrent users
         Gauge.builder("socketio.concurrent.users", connectedUsers::size)
@@ -62,13 +69,31 @@ public class ConnectionLoginHandler {
         String userId = user.id();
 
         try {
+            chatWorkerExecutor.execute(() -> handleConnectAsync(client, user, userId));
+        } catch (RejectedExecutionException e) {
+            client.sendEvent(ERROR, Map.of(
+                    "message", "요청이 많아 연결을 처리할 수 없습니다."
+            ));
+        }
+    }
+
+    @OnDisconnect
+    public void onDisconnect(SocketIOClient client) {
+        String userId = getUserId(client);
+        try {
+            chatWorkerExecutor.execute(() -> handleDisconnectAsync(client, userId));
+        } catch (RejectedExecutionException e) {
+            log.warn("Disconnect handling rejected for user {}", userId);
+        }
+
+    }
+
+    private void handleConnectAsync(SocketIOClient client, SocketUser user, String userId) {
+        try {
             notifyDuplicateLogin(client, userId);
             client.set("user", user);
 
-            userRooms.get(userId).forEach(roomId -> {
-                // 재접속 시 기존 참여 방 재입장 처리
-                roomJoinHandler.handleJoinRoom(client, roomId);
-            });
+            userRooms.get(userId).forEach(roomId -> roomJoinHandler.handleJoinRoom(client, roomId));
 
             connectedUsers.set(userId, user);
 
@@ -85,9 +110,7 @@ public class ConnectionLoginHandler {
         }
     }
 
-    @OnDisconnect
-    public void onDisconnect(SocketIOClient client) {
-        String userId = getUserId(client);
+    private void handleDisconnectAsync(SocketIOClient client, String userId) {
         String userName = getUserName(client);
 
         try {
@@ -95,12 +118,8 @@ public class ConnectionLoginHandler {
                 return;
             }
 
-            userRooms.get(userId).forEach(roomId -> {
-                roomLeaveHandler.handleLeaveRoom(client, roomId);
-            });
-            String socketId = client.getSessionId().toString();
+            userRooms.get(userId).forEach(roomId -> roomLeaveHandler.handleLeaveRoom(client, roomId));
 
-            // 항상 해당 사용자 연결 상태 정리 (stale entry 방지)
             connectedUsers.del(userId);
 
             client.leaveRooms(Set.of("user:" + userId, "room-list"));
@@ -115,7 +134,6 @@ public class ConnectionLoginHandler {
                 "message", "연결 종료 처리 중 오류가 발생했습니다."
             ));
         }
-
     }
 
     private SocketUser getUserDto(SocketIOClient client) {

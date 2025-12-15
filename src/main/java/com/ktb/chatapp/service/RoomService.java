@@ -3,6 +3,7 @@ package com.ktb.chatapp.service;
 import com.ktb.chatapp.dto.*;
 import com.ktb.chatapp.event.RoomCreatedEvent;
 import com.ktb.chatapp.event.RoomUpdatedEvent;
+import com.ktb.chatapp.exception.RoomNotFoundException;
 import com.ktb.chatapp.model.Room;
 import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.MessageRepository;
@@ -276,8 +277,12 @@ public class RoomService {
     }
 
     @Cacheable(value = "room", key = "#roomId")
-    public Optional<Room> findRoomById(String roomId) {
-        return roomRepository.findById(roomId);
+    public Room findRoomById(String roomId) {
+        if (roomId == null || roomId.isBlank()) {
+            throw new IllegalArgumentException("roomId must not be blank");
+        }
+        return roomRepository.findById(roomId)
+                .orElseThrow(() -> new RoomNotFoundException("Room not found: " + roomId));
     }
 
     @Caching(evict = {
@@ -285,12 +290,7 @@ public class RoomService {
             @CacheEvict(value = "rooms", key = "'default'")
     })
     public Room joinRoom(String roomId, String password, String name) {
-        Optional<Room> roomOpt = roomRepository.findById(roomId);
-        if (roomOpt.isEmpty()) {
-            return null;
-        }
-
-        Room room = roomOpt.get();
+        Room room = findRoomById(roomId);
         User user = userRepository.findByEmail(name)
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + name));
 

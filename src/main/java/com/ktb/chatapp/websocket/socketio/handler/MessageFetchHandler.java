@@ -9,6 +9,7 @@ import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -43,7 +44,11 @@ public class MessageFetchHandler {
             return;
         }
 
-        chatWorkerExecutor.execute(() -> processFetchMessages(client, data, userId));
+        try {
+            chatWorkerExecutor.execute(() -> processFetchMessages(client, data, userId));
+        } catch (RejectedExecutionException e) {
+            client.sendEvent(ERROR, Map.of("code", "SERVER_BUSY", "message", "요청이 많아 메시지를 불러올 수 없습니다."));
+        }
     }
     private void processFetchMessages(SocketIOClient client, FetchMessagesRequest data, String userId) {
         final String roomId = data.roomId();

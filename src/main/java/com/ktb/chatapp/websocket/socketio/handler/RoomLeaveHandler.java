@@ -5,6 +5,7 @@ import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.annotation.OnEvent;
 import com.ktb.chatapp.dto.MessageResponse;
 import com.ktb.chatapp.dto.UserResponse;
+import com.ktb.chatapp.exception.RoomNotFoundException;
 import com.ktb.chatapp.model.Message;
 import com.ktb.chatapp.model.MessageType;
 import com.ktb.chatapp.model.Room;
@@ -21,8 +22,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -72,7 +73,11 @@ public class RoomLeaveHandler {
         }
 
         // 핵심 로직을 비동기 작업자 스레드에 위임 (논블로킹)
-        chatWorkerExecutor.execute(() -> processLeaveRoom(client, roomId, userId));
+        try {
+            chatWorkerExecutor.execute(() -> processLeaveRoom(client, roomId, userId));
+        } catch (RejectedExecutionException e) {
+            log.warn("leaveRoom rejected due to worker saturation - roomId: {}, userId: {}", roomId, userId);
+        }
     }
 
     // 블로킹 I/O 작업을 수행하는 비동기 메서드
@@ -80,12 +85,17 @@ public class RoomLeaveHandler {
         String userName = getUserName(client);
 
         try {
-            Optional<Room> roomOpt = roomService.findRoomById(roomId);
+            Room room;
+            try {
+                room = roomService.findRoomById(roomId);
+            } catch (IllegalArgumentException | RoomNotFoundException e) {
+                log.warn("Room {} not found or invalid id for user {}", roomId, userId);
+                return;
+            }
             User user = userRepository.findById(userId).orElse(null);
-            Room room = roomOpt.orElse(null);
 
-            if (user == null || room == null) {
-                log.warn("Room {} not found or user {} has no access", roomId, userId);
+            if (user == null) {
+                log.warn("User {} has no access to room {}", userId, roomId);
                 return;
             }
 
@@ -147,13 +157,14 @@ public class RoomLeaveHandler {
     }
 
     private void broadcastParticipantList(String roomId) {
-        // [수정: RoomService를 사용하여 캐시된 방 정보 조회]
-        Optional<Room> roomOpt = roomService.findRoomById(roomId);
-        if (roomOpt.isEmpty()) {
+        Room room;
+        try {
+            room = roomService.findRoomById(roomId);
+        } catch (IllegalArgumentException | RoomNotFoundException e) {
             return;
         }
 
-        Set<String> participantIds = roomOpt.get().getParticipantIds();
+        Set<String> participantIds = room.getParticipantIds();
         if (participantIds == null || participantIds.isEmpty()) {
             return;
         }
