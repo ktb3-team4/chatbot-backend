@@ -9,6 +9,7 @@ import com.ktb.chatapp.service.JwtService;
 import com.ktb.chatapp.service.SessionCreationResult;
 import com.ktb.chatapp.service.SessionMetadata;
 import com.ktb.chatapp.service.SessionService;
+import com.ktb.chatapp.service.UserCacheService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -51,6 +52,7 @@ public class AuthController {
     private final JwtService jwtService;
     private final SessionService sessionService;
     private final ApplicationEventPublisher eventPublisher;
+    private final UserCacheService userCacheService;
 
     @Operation(summary = "인증 API 상태 확인", description = "인증 API의 사용 가능한 엔드포인트 목록을 반환합니다.")
     @ApiResponses({
@@ -108,6 +110,7 @@ public class AuthController {
                     .build();
 
             user = userRepository.save(user);
+            userCacheService.evictUserCaches(user.getId(), user.getEmail());
 
             LoginResponse response = LoginResponse.builder()
                     .success(true)
@@ -188,6 +191,8 @@ public class AuthController {
                 user.getEmail(),
                 user.getId()
             );
+
+            userCacheService.evictUserCaches(user.getId(), user.getEmail());
 
             LoginResponse response = LoginResponse.builder()
                     .success(true)

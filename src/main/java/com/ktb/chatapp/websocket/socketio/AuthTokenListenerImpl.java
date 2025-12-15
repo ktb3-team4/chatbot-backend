@@ -40,10 +40,13 @@ public class AuthTokenListenerImpl implements AuthTokenListener {
             String token = authToken.get("token") != null ? authToken.get("token").toString() : null;
             String sessionId = authToken.get("sessionId") != null ? authToken.get("sessionId").toString() : null;
 
+            log.info("Socket.IO handshake received. token exists: {}, sessionId: {}",
+                    token != null, sessionId);
+
             if (token == null || sessionId == null) {
                 log.warn("Missing authentication credentials in Socket.IO handshake - token: {}, sessionId: {}",
                         token != null, sessionId != null);
-                return new AuthTokenResult(false, "Authentication error");
+                return new AuthTokenResult(false, "Authentication error: Missing token or session ID");
             }
 
             String userId;
