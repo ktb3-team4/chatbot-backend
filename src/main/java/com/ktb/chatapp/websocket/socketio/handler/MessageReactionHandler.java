@@ -3,24 +3,23 @@ package com.ktb.chatapp.websocket.socketio.handler;
 import com.corundumstudio.socketio.SocketIOClient;
 import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.annotation.OnEvent;
-import com.fasterxml.jackson.databind.ObjectMapper; // [추가]
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ktb.chatapp.dto.MessageReactionRequest;
 import com.ktb.chatapp.dto.MessageReactionResponse;
 import com.ktb.chatapp.model.Message;
 import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import java.util.Map;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
 
-/**
- * 메시지 리액션 처리 핸들러
- * 메시지 이모지 리액션 추가/제거 및 브로드캐스트 담당
- */
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
@@ -29,17 +28,31 @@ public class MessageReactionHandler {
 
     private final SocketIOServer socketIOServer;
     private final MessageRepository messageRepository;
-    private final ObjectMapper objectMapper; // [추가] ObjectMapper 주입
+    private final ObjectMapper objectMapper;
+
+    @Qualifier("chatWorkerExecutor") // [추가]
+    private final ThreadPoolTaskExecutor chatWorkerExecutor; // [추가]
 
     @OnEvent(MESSAGE_REACTION)
     public void handleMessageReaction(SocketIOClient client, MessageReactionRequest data) {
-        try {
-            String userId = getUserId(client);
-            if (userId == null || userId.isBlank()) {
-                client.sendEvent(ERROR, Map.of("message", "Unauthorized"));
-                return;
-            }
+        String userId = getUserId(client);
+        if (userId == null || userId.isBlank()) {
+            client.sendEvent(ERROR, Map.of("message", "Unauthorized"));
+            return;
+        }
 
+        // 핵심 로직을 비동기 작업자 스레드에 위임하여 Socket.IO 워커 스레드 블로킹 방지
+        try {
+            chatWorkerExecutor.execute(() -> processMessageReaction(client, data, userId));
+        } catch (RejectedExecutionException e) {
+            client.sendEvent(ERROR, Map.of("message", "현재 요청이 많아 처리할 수 없습니다."));
+        }
+    }
+
+    // 블로킹 I/O를 수행하는 실제 비동기 처리 메소드 [추가]
+    public void processMessageReaction(SocketIOClient client, MessageReactionRequest data, String userId) {
+        try {
+            // MongoDB 조회 (블로킹 I/O)
             Message message = messageRepository.findById(data.getMessageId()).orElse(null);
             if (message == null) {
                 client.sendEvent(ERROR, Map.of("message", "메시지를 찾을 수 없습니다."));
@@ -58,6 +71,7 @@ public class MessageReactionHandler {
             log.debug("Message reaction processed - type: {}, reaction: {}, messageId: {}, userId: {}",
                     data.getType(), data.getReaction(), message.getId(), userId);
 
+            // MongoDB 저장 (블로킹 I/O)
             messageRepository.save(message);
 
             MessageReactionResponse response = new MessageReactionResponse(
@@ -65,28 +79,26 @@ public class MessageReactionHandler {
                     message.getReactions()
             );
 
+            // 브로드캐스트
             socketIOServer.getRoomOperations(message.getRoomId())
                     .sendEvent(MESSAGE_REACTION_UPDATE, response);
 
         } catch (Exception e) {
-            log.error("Error handling messageReaction", e);
+            log.error("Error handling messageReaction (Async)", e);
             client.sendEvent(ERROR, Map.of(
                     "message", "리액션 처리 중 오류가 발생했습니다."
             ));
         }
     }
 
-    // [수정] Redis 등에서 가져온 데이터(LinkedHashMap)를 SocketUser로 안전하게 변환
     private String getUserId(SocketIOClient client) {
         Object value = client.get("user");
         if (value == null) {
             return null;
         }
-        // 메모리 내 객체인 경우
         if (value instanceof SocketUser socketUser) {
             return socketUser.id();
         }
-        // Redis에서 역직렬화된 Map인 경우
         try {
             return objectMapper.convertValue(value, SocketUser.class).id();
         } catch (Exception e) {

@@ -4,6 +4,7 @@ import com.ktb.chatapp.model.File;
 import com.ktb.chatapp.repository.FileRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -11,6 +12,7 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -101,5 +103,11 @@ public class S3FileService implements FileService {
             log.error("Failed to extract key from URL: {}", url);
             return null;
         }
+    }
+
+    @Override
+    @Cacheable(value = "file_metadata", key = "#fileId", unless = "T(java.util.Optional).empty().equals(#result)")
+    public Optional<File> findFileMetadataById(String fileId) {
+        return fileRepository.findById(fileId);
     }
 }

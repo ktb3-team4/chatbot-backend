@@ -3,29 +3,23 @@ package com.ktb.chatapp.websocket.socketio.handler;
 import com.corundumstudio.socketio.SocketIOClient;
 import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.annotation.OnEvent;
-import com.fasterxml.jackson.databind.ObjectMapper; // [추가]
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ktb.chatapp.dto.MarkAsReadRequest;
 import com.ktb.chatapp.dto.MessagesReadResponse;
-import com.ktb.chatapp.model.Message;
-import com.ktb.chatapp.model.Room;
-import com.ktb.chatapp.model.User;
-import com.ktb.chatapp.repository.MessageRepository;
-import com.ktb.chatapp.repository.RoomRepository;
-import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.MessageReadStatusService;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
-import java.util.Map;
+import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
-import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
+import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.MARK_MESSAGES_AS_READ;
+import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.MESSAGES_READ;
 
-/**
- * 메시지 읽음 상태 처리 핸들러
- * 메시지 읽음 상태 업데이트 및 브로드캐스트 담당
- */
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
@@ -34,58 +28,51 @@ public class MessageReadHandler {
 
     private final SocketIOServer socketIOServer;
     private final MessageReadStatusService messageReadStatusService;
-    private final MessageRepository messageRepository;
-    private final RoomRepository roomRepository;
-    private final UserRepository userRepository;
-    private final ObjectMapper objectMapper; // [추가] ObjectMapper 주입
+    private final ObjectMapper objectMapper;
+
+    @Qualifier("chatWorkerExecutor")
+    private final ThreadPoolTaskExecutor chatWorkerExecutor;
 
     @OnEvent(MARK_MESSAGES_AS_READ)
     public void handleMarkAsRead(SocketIOClient client, MarkAsReadRequest data) {
+        String userId = getUserId(client);
+        if (userId == null) {
+            return;
+        }
+
+        if (data == null || data.getMessageIds() == null || data.getMessageIds().isEmpty()
+                || data.getRoomId() == null || data.getRoomId().isBlank()) {
+            return;
+        }
+
         try {
-            String userId = getUserId(client);
-            if (userId == null) {
-                client.sendEvent(ERROR, Map.of("message", "Unauthorized"));
+            chatWorkerExecutor.execute(() -> processMarkAsRead(data, userId));
+        } catch (RejectedExecutionException e) {
+            log.warn("MarkAsRead rejected due to worker saturation for user {}", userId);
+        }
+    }
+
+    private void processMarkAsRead(MarkAsReadRequest data, String userId) {
+        try {
+            List<String> messageIds = data.getMessageIds().stream()
+                    .filter(id -> id != null && !id.isBlank())
+                    .distinct()
+                    .toList();
+
+            if (messageIds.isEmpty()) {
                 return;
             }
 
-            if (data == null || data.getMessageIds() == null || data.getMessageIds().isEmpty()) {
-                return;
-            }
+            String roomId = data.getRoomId();
 
-            // 첫 번째 메시지로 채팅방 ID 조회 (모든 메시지가 같은 방이라고 가정)
-            String roomId = messageRepository.findById(data.getMessageIds().getFirst())
-                    .map(Message::getRoomId).orElse(null);
+            messageReadStatusService.bufferRead(messageIds, userId, roomId);
 
-            if (roomId == null || roomId.isBlank()) {
-                client.sendEvent(ERROR, Map.of("message", "Invalid room"));
-                return;
-            }
-
-            User user = userRepository.findById(userId).orElse(null);
-            if (user == null) {
-                client.sendEvent(ERROR, Map.of("message", "User not found"));
-                return;
-            }
-
-            Room room = roomRepository.findById(roomId).orElse(null);
-            if (room == null || !room.getParticipantIds().contains(userId)) {
-                client.sendEvent(ERROR, Map.of("message", "Room access denied"));
-                return;
-            }
-
-            messageReadStatusService.updateReadStatus(data.getMessageIds(), userId);
-
-            MessagesReadResponse response = new MessagesReadResponse(userId, data.getMessageIds());
-
-            // Broadcast to room
+            MessagesReadResponse response = new MessagesReadResponse(userId, messageIds);
             socketIOServer.getRoomOperations(roomId)
                     .sendEvent(MESSAGES_READ, response);
 
         } catch (Exception e) {
-            log.error("Error handling markMessagesAsRead", e);
-            client.sendEvent(ERROR, Map.of(
-                    "message", "읽음 상태 업데이트 중 오류가 발생했습니다."
-            ));
+            log.debug("MarkAsRead ignored due to error", e);
         }
     }
 
@@ -94,11 +81,9 @@ public class MessageReadHandler {
         if (value == null) {
             return null;
         }
-        // 메모리 내 객체인 경우 (같은 서버 내)
         if (value instanceof SocketUser socketUser) {
             return socketUser.id();
         }
-        // Redis에서 역직렬화된 Map인 경우 (다중 서버 환경)
         try {
             return objectMapper.convertValue(value, SocketUser.class).id();
         } catch (Exception e) {

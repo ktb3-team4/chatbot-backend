@@ -5,8 +5,11 @@ import com.ktb.chatapp.dto.UserResponse;
 import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.UserRepository;
 import java.time.LocalDateTime;
+import java.util.Optional;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
@@ -55,7 +58,7 @@ public class UserService {
      * 특정 사용자 프로필 조회
      */
     public UserResponse getUserProfile(String userId) {
-        User user = userRepository.findById(userId)
+        User user = findUserById(userId)
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
 
         return UserResponse.from(user);
@@ -108,5 +111,10 @@ public class UserService {
 
         userRepository.delete(user);
         log.info("회원 탈퇴 완료 - User ID: {}", user.getId());
+    }
+
+    @Cacheable(value = "user", key = "#userId", unless = "T(java.util.Optional).empty().equals(#result)")
+    public Optional<User> findUserById(String userId) {
+        return userRepository.findById(userId);
     }
 }

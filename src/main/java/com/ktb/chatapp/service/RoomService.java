@@ -3,6 +3,7 @@ package com.ktb.chatapp.service;
 import com.ktb.chatapp.dto.*;
 import com.ktb.chatapp.event.RoomCreatedEvent;
 import com.ktb.chatapp.event.RoomUpdatedEvent;
+import com.ktb.chatapp.exception.RoomNotFoundException;
 import com.ktb.chatapp.model.Room;
 import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.MessageRepository;
@@ -32,6 +33,7 @@ public class RoomService {
     private final RoomRepository roomRepository;
     private final UserRepository userRepository;
     private final MessageRepository messageRepository;
+    private final UserService userService;
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -136,9 +138,11 @@ public class RoomService {
             }
         }
 
-        // 모든 User 데이터를 한 번에 조회하여 맵에 저장 (I/O 횟수 대폭 감소)
-        Map<String, User> userMap = userRepository.findAllById(allUserIds).stream()
-                .collect(Collectors.toMap(User::getId, user -> user, (u1, u2) -> u1)); // 중복 키 처리 추가
+        Map<String, User> userMap = allUserIds.stream()
+                .map(userService::findUserById) // ⬅️ 캐싱된 서비스 메서드 사용
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toMap(User::getId, user -> user, (u1, u2) -> u1));
 
         // 맵을 사용하여 매핑
         List<RoomResponse> roomResponses = roomPage.getContent().stream()
@@ -241,7 +245,11 @@ public class RoomService {
         }
 
         // 참가자 목록 일괄 조회
-        List<User> participants = userRepository.findAllById(room.getParticipantIds());
+        List<User> participants = room.getParticipantIds().stream()
+                .map(userService::findUserById)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .toList();
 
         return RoomResponse.builder()
                 .id(room.getId())
@@ -269,8 +277,12 @@ public class RoomService {
     }
 
     @Cacheable(value = "room", key = "#roomId")
-    public Optional<Room> findRoomById(String roomId) {
-        return roomRepository.findById(roomId);
+    public Room findRoomById(String roomId) {
+        if (roomId == null || roomId.isBlank()) {
+            throw new IllegalArgumentException("roomId must not be blank");
+        }
+        return roomRepository.findById(roomId)
+                .orElseThrow(() -> new RoomNotFoundException("Room not found: " + roomId));
     }
 
     @Caching(evict = {
@@ -278,12 +290,7 @@ public class RoomService {
             @CacheEvict(value = "rooms", key = "'default'")
     })
     public Room joinRoom(String roomId, String password, String name) {
-        Optional<Room> roomOpt = roomRepository.findById(roomId);
-        if (roomOpt.isEmpty()) {
-            return null;
-        }
-
-        Room room = roomOpt.get();
+        Room room = findRoomById(roomId);
         User user = userRepository.findByEmail(name)
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다: " + name));
 

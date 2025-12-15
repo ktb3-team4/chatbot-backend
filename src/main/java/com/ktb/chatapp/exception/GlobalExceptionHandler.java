@@ -10,12 +10,14 @@ import java.util.List;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -91,7 +93,29 @@ public class GlobalExceptionHandler {
         response.setPath(request.getRequestURI());
         return ResponseEntity.status(ApiErrorCode.FILE_TOO_LARGE.getHttpStatus()).body(response);
     }
-    
+
+    /**
+     * 클라이언트 연결 끊김 예외 처리 (Broken pipe, ClientAbort)
+     * - 클라이언트가 응답을 받기 전에 연결을 끊었을 때 발생하는 예상된 예외입니다.
+     * - 서버 오류가 아니므로 WARN 레벨로 처리하여 로그 노이즈를 줄이고 부하 테스트 로그 오염을 막습니다.
+     */
+    @ExceptionHandler({
+            AsyncRequestNotUsableException.class,
+            org.apache.catalina.connector.ClientAbortException.class // Tomcat specific exception
+    })
+    public ResponseEntity<Void> handleClientDisconnect(Exception ex, HttpServletRequest request) {
+        String rootMessage = (ex.getCause() != null) ? ex.getCause().getMessage() : ex.getMessage();
+
+        if (rootMessage != null && rootMessage.contains("Broken pipe")) {
+            log.warn("클라이언트 연결 끊김 감지 (Broken Pipe): {} - {}", request.getRequestURI(), rootMessage);
+        } else {
+            log.warn("클라이언트 연결 끊김 감지: {} - {}", request.getRequestURI(), ex.getMessage());
+        }
+
+        // 이미 연결이 끊겼으므로 응답을 보낼 수 없지만, Spring의 에러 카운트를 막기 위해 204를 반환합니다.
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+    }
+
     /**
      * 일반적인 Runtime 예외 처리
      */
@@ -109,7 +133,7 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity.status(ApiErrorCode.INTERNAL_SERVER_ERROR.getHttpStatus()).body(response);
     }
-    
+
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<StandardResponse<Object>> handleNoResourceFoundException() {
         return ResponseEntity.notFound().build();

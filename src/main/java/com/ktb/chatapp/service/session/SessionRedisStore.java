@@ -3,6 +3,7 @@ package com.ktb.chatapp.service.session;
 import com.ktb.chatapp.model.Session;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.convert.DurationStyle;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
@@ -19,7 +20,7 @@ public class SessionRedisStore implements SessionStore {
     private final RedisTemplate<String, Session> sessionRedisTemplate;
 
     private static final String KEY_PREFIX = "session:";
-    private static final Duration SESSION_TTL = Duration.ofHours(24); // 세션 만료 24시간
+    private static final Duration SESSION_TTL = DurationStyle.detectAndParse(Session.SESSION_TTL);
 
     private String getKey(String sessionId) {
         return KEY_PREFIX + sessionId;

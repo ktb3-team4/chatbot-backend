@@ -88,7 +88,7 @@ public class MessageLoader {
 
         if (userId != null && !sortedMessages.isEmpty()) {
             var messageIds = sortedMessages.stream().map(Message::getId).toList(); // <-- toList() 적용
-            messageReadStatusService.updateReadStatus(messageIds, userId);
+            messageReadStatusService.bufferRead(messageIds, userId, roomId);
         }
 
         List<MessageResponse> messageResponses = sortedMessages.stream()
