@@ -30,7 +30,7 @@ public class FileController {
     private final FileService fileService;
     private final UserRepository userRepository;
 
-    @PostMapping("/uploads")
+    @PostMapping("/upload")
     public ResponseEntity<Map<String, Object>> uploadFile(@RequestBody Map<String, Object> payload) {
 
         Map<String, Object> response = new HashMap<>();
