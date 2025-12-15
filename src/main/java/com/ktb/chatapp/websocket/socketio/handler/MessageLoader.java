@@ -33,22 +33,24 @@ public class MessageLoader {
     private final ObjectProvider<MessageLoader> selfProvider; // <--- 자기 호출 문제 해결
 
     private static final int BATCH_SIZE = 30;
+    private static final int MAX_LIMIT = 100;
 
     public FetchMessagesResponse loadMessages(FetchMessagesRequest data, String userId) {
         // 프록시 인스턴스 획득
         MessageLoader self = selfProvider.getObject();
 
         try {
+            int effectiveLimit = Math.min(data.limit(BATCH_SIZE), MAX_LIMIT);
             // 'before' 타임스탬프가 없거나 0인 경우 (최초 로드 요청)
             if (data.before() == null || data.before() == 0) {
-                FetchMessagesRequest cacheKey = new FetchMessagesRequest(data.roomId(), data.limit(), 0L);
+                FetchMessagesRequest cacheKey = new FetchMessagesRequest(data.roomId(), effectiveLimit, 0L);
 
                 // 프록시를 통해 Cacheable 메서드 호출
                 return self.loadInitialMessagesCached(cacheKey, userId);
             }
 
             // 'before'가 있는 경우 (페이지네이션 요청) - 항상 DB 조회
-            return loadMessagesInternal(data.roomId(), data.limit(BATCH_SIZE), data.before(LocalDateTime.now()), userId);
+            return loadMessagesInternal(data.roomId(), effectiveLimit, data.before(LocalDateTime.now()), userId);
         } catch (Exception e) {
             log.error("Error loading messages for room {}", data.roomId(), e);
             return FetchMessagesResponse.builder()
@@ -65,7 +67,8 @@ public class MessageLoader {
     @Cacheable(value = "messages_first_page", key = "#data.roomId() + ':' + #data.limit() + ':' + #userId")
     public FetchMessagesResponse loadInitialMessagesCached(FetchMessagesRequest data, String userId) {
         // 캐시 히트/미스에 관계없이 실제 DB 조회 로직을 호출 (최신 시간 기준)
-        return loadMessagesInternal(data.roomId(), data.limit(BATCH_SIZE), LocalDateTime.now(), userId);
+        int effectiveLimit = Math.min(data.limit(BATCH_SIZE), MAX_LIMIT);
+        return loadMessagesInternal(data.roomId(), effectiveLimit, LocalDateTime.now(), userId);
     }
 
     // 실제 DB I/O 및 응답 매핑을 담당하는 메서드

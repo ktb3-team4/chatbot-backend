@@ -22,7 +22,7 @@ public class StreamingSession {
     @Builder.Default
     private long lastUpdate = System.currentTimeMillis();
     @Builder.Default
-    private String content = "";
+    private StringBuilder contentBuilder = new StringBuilder();
 
     public AiType aiTypeEnum() {
         if (aiType == null) return null;
@@ -39,8 +39,12 @@ public class StreamingSession {
     }
 
     public void appendContent(String contentChunk) {
-        content += contentChunk;
+        contentBuilder.append(contentChunk);
         lastUpdate = System.currentTimeMillis();
+    }
+
+    public String getContent() {
+        return contentBuilder.toString();
     }
     
     public long generationTimeMillis() {
