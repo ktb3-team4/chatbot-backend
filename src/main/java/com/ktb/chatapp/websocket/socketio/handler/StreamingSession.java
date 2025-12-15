@@ -22,7 +22,9 @@ public class StreamingSession {
     @Builder.Default
     private long lastUpdate = System.currentTimeMillis();
     @Builder.Default
-    private StringBuilder contentBuilder = new StringBuilder();
+    private StringBuilder contentBuilder = new StringBuilder(1024);
+    @Builder.Default
+    private long maxContentLength = 200_000; // characters
 
     public AiType aiTypeEnum() {
         if (aiType == null) return null;
@@ -38,13 +40,29 @@ public class StreamingSession {
         return aiTypeEnum;
     }
 
-    public void appendContent(String contentChunk) {
+    /**
+     * Append content chunk; returns false if capacity would be exceeded.
+     */
+    public boolean appendContent(String contentChunk) {
+        if (contentChunk == null || contentChunk.isEmpty()) {
+            return true;
+        }
+
+        if (contentBuilder.length() + contentChunk.length() > maxContentLength) {
+            return false;
+        }
+
         contentBuilder.append(contentChunk);
         lastUpdate = System.currentTimeMillis();
+        return true;
     }
 
     public String getContent() {
         return contentBuilder.toString();
+    }
+
+    public int getContentLength() {
+        return contentBuilder.length();
     }
     
     public long generationTimeMillis() {

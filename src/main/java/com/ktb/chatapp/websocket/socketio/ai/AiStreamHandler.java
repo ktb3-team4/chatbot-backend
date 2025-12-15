@@ -26,12 +26,20 @@ public class AiStreamHandler implements Subscriber<ChunkData> {
 
     @Override
     public void onNext(ChunkData chunk) {
-        session.appendContent(chunk.currentChunk());
-        
+        boolean appended = session.appendContent(chunk.currentChunk());
+
         String messageId = session.getMessageId();
         String roomId = session.getRoomId();
         if (roomId == null) {
             log.warn("Room id missing while processing AI chunk - messageId: {}", messageId);
+            return;
+        }
+
+        if (!appended) {
+            log.warn("AI stream exceeded max content length ({} chars) for room={} messageId={}",
+                    session.getMaxContentLength(), roomId, messageId);
+            sendErrorEvent("AI 응답이 최대 길이를 초과했습니다.");
+            cancel();
             return;
         }
 
