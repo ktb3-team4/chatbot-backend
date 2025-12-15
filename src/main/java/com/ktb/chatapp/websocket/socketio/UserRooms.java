@@ -3,6 +3,9 @@ package com.ktb.chatapp.websocket.socketio;
 import java.util.HashSet;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RSet;
+import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -13,7 +16,7 @@ public class UserRooms {
 
     private static final String USER_ROOM_KEY_PREFIX = "userroom:roomids:";
 
-    private final ChatDataStore chatDataStore;
+    private final RedissonClient redissonClient;
 
     /**
      * Get all room IDs for a user
@@ -23,9 +26,7 @@ public class UserRooms {
      */
     @SuppressWarnings("unchecked")
     public Set<String> get(String userId) {
-        return chatDataStore.get(buildKey(userId), Set.class)
-                .map(obj -> (Set<String>) obj)
-                .orElse(new HashSet<>());
+        return new HashSet<>(getSet(userId).readAll());
     }
 
     /**
@@ -35,9 +36,7 @@ public class UserRooms {
      * @param roomId the room ID to add to the user's room set
      */
     public void add(String userId, String roomId) {
-        Set<String> rooms = new HashSet<>(get(userId));
-        rooms.add(roomId);
-        chatDataStore.set(buildKey(userId), rooms);
+        getSet(userId).add(roomId);
     }
 
     /**
@@ -47,12 +46,10 @@ public class UserRooms {
      * @param roomId the room ID to remove
      */
     public void remove(String userId, String roomId) {
-        Set<String> rooms = new HashSet<>(get(userId));
-        rooms.remove(roomId);
-        if (rooms.isEmpty()) {
-            chatDataStore.delete(buildKey(userId));
-        } else {
-            chatDataStore.set(buildKey(userId), rooms);
+        RSet<String> set = getSet(userId);
+        set.remove(roomId);
+        if (set.isEmpty()) {
+            set.delete();
         }
     }
 
@@ -62,7 +59,7 @@ public class UserRooms {
      * @param userId the user ID
      */
     public void clear(String userId) {
-        chatDataStore.delete(buildKey(userId));
+        getSet(userId).delete();
     }
 
     /**
@@ -82,5 +79,9 @@ public class UserRooms {
     
     public void removeAllRooms(String userId) {
         get(userId).forEach(roomId -> remove(userId, roomId));
+    }
+
+    private RSet<String> getSet(String userId) {
+        return redissonClient.getSet(buildKey(userId), StringCodec.INSTANCE);
     }
 }
