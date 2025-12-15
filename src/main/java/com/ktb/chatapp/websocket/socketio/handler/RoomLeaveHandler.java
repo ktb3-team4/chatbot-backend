@@ -11,7 +11,6 @@ import com.ktb.chatapp.model.MessageType;
 import com.ktb.chatapp.model.Room;
 import com.ktb.chatapp.model.User;
 import com.ktb.chatapp.repository.MessageRepository;
-import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.RoomService;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
@@ -45,7 +44,6 @@ public class RoomLeaveHandler {
 
     private final SocketIOServer socketIOServer;
     private final MessageRepository messageRepository;
-    private final RoomRepository roomRepository;
     private final UserRepository userRepository;
     private final UserRooms userRooms;
     private final MessageResponseMapper messageResponseMapper;
@@ -85,6 +83,12 @@ public class RoomLeaveHandler {
         String userName = getUserName(client);
 
         try {
+            // 다른 스레드에서 이미 처리한 경우 중복 메시지 전송을 막기 위해 한 번 더 확인
+            if (!userRooms.isInRoom(userId, roomId)) {
+                log.debug("Skip leaveRoom - already processed for user {} room {}", userId, roomId);
+                return;
+            }
+
             Room room;
             try {
                 room = roomService.findRoomById(roomId);
@@ -99,10 +103,7 @@ public class RoomLeaveHandler {
                 return;
             }
 
-            // DB write (blocking)
-            roomRepository.removeParticipant(roomId, userId);
-
-            // Redis write (blocking)
+            // Presence cleanup only (DB 참가자 목록은 유지)
             client.leaveRoom(roomId);
             userRooms.remove(userId, roomId);
 

@@ -59,12 +59,12 @@ public class MessageLoader {
     }
 
     /**
-     * 초기 메시지 로드 (가장 최근 메시지) - Redis 캐싱 적용
+     * 초기 메시지 로드 (가장 최근 메시지)
+     * 실시간 채팅의 특성상 캐싱하지 않고 항상 최신 데이터를 조회
      * 이 메서드는 반드시 주입된 프록시를 통해 호출되어야 합니다.
      */
-    @Cacheable(value = "messages_first_page", key = "#data.roomId() + ':' + #data.limit() + ':' + #userId")
     public FetchMessagesResponse loadInitialMessagesCached(FetchMessagesRequest data, String userId) {
-        // 캐시 히트/미스에 관계없이 실제 DB 조회 로직을 호출 (최신 시간 기준)
+        // 항상 최신 메시지를 조회
         return loadMessagesInternal(data.roomId(), data.limit(BATCH_SIZE), LocalDateTime.now(), userId);
     }
 

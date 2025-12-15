@@ -113,6 +113,13 @@ public class UserService {
         log.info("회원 탈퇴 완료 - User ID: {}", user.getId());
     }
 
+    public Optional<User> findUserByEmail(String email) {
+        if (email == null) {
+            return Optional.empty();
+        }
+        return userRepository.findByEmail(email.toLowerCase());
+    }
+
     @Cacheable(value = "user", key = "#userId", unless = "T(java.util.Optional).empty().equals(#result)")
     public Optional<User> findUserById(String userId) {
         return userRepository.findById(userId);
