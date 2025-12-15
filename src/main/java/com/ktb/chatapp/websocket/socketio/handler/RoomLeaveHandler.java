@@ -83,6 +83,12 @@ public class RoomLeaveHandler {
         String userName = getUserName(client);
 
         try {
+            // 다른 스레드에서 이미 처리한 경우 중복 메시지 전송을 막기 위해 한 번 더 확인
+            if (!userRooms.isInRoom(userId, roomId)) {
+                log.debug("Skip leaveRoom - already processed for user {} room {}", userId, roomId);
+                return;
+            }
+
             Room room;
             try {
                 room = roomService.findRoomById(roomId);

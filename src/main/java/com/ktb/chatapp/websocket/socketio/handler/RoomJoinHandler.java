@@ -89,18 +89,23 @@ public class RoomJoinHandler {
                 return;
             }
 
-            // 이미 해당 방에 참여 중인지 확인
-            if (userRooms.isInRoom(userId, roomId)) {
-                log.debug("User {} already in room {}", userId, roomId);
-                client.joinRoom(roomId);
+            boolean alreadyInRoom = userRooms.isInRoom(userId, roomId);
+            boolean socketAlreadyJoined = client.getAllRooms().contains(roomId);
+
+            // 동일 소켓에서 중복 요청인 경우 빠르게 응답
+            if (alreadyInRoom && socketAlreadyJoined) {
+                log.debug("User {} already joined room {} with current socket", userId, roomId);
                 client.sendEvent(JOIN_ROOM_SUCCESS, Map.of("roomId", roomId));
                 return;
             }
 
-            // MongoDB의 $addToSet 연산자를 사용한 원자적 업데이트
-            roomRepository.addParticipant(roomId, userId);
+            // 이미 해당 방에 참여 중인지 확인
+            if (!alreadyInRoom) {
+                // MongoDB의 $addToSet 연산자를 사용한 원자적 업데이트
+                roomRepository.addParticipant(roomId, userId);
+            }
 
-            // Join socket room and add to user's room set
+            // Join socket room and add to user's room set (idempotent)
             client.joinRoom(roomId);
             userRooms.add(userId, roomId);
 
