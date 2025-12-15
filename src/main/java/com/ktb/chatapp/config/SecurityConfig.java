@@ -69,7 +69,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(request -> createCorsConfiguration()))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
-                                "/api/uploads/**",
+                                "/api/upload/**",
                                 "/api/health",
                                 "/api/auth/**",
                                 "/api/v3/api-docs/**",
