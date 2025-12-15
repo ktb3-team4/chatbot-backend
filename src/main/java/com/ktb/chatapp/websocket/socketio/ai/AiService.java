@@ -31,14 +31,17 @@ public class AiService {
     private final ChatClient chatClient;
     private final ApplicationEventPublisher eventPublisher;
     private final MessageRepository messageRepository;
+    private final long maxStreamContentLength;
 
     public AiService(
             ChatClient.Builder chatClientBuilder,
             ApplicationEventPublisher eventPublisher,
-            MessageRepository messageRepository) {
+            MessageRepository messageRepository,
+            @org.springframework.beans.factory.annotation.Value("${chatapp.ai.max-stream-content-length:200000}") long maxStreamContentLength) {
         this.chatClient = chatClientBuilder.build();
         this.eventPublisher = eventPublisher;
         this.messageRepository = messageRepository;
+        this.maxStreamContentLength = Math.max(10_000, maxStreamContentLength);
     }
 
     public void handleAIMentions(String roomId, String userId, MessageContent messageContent) {
@@ -70,9 +73,10 @@ public class AiService {
             .aiType(aiType)
             .timestamp(timestamp)
             .query(query)
+            .maxContentLength(maxStreamContentLength)
             .build();
-        
-        
+
+
         streamResponse(session)
                 .subscribe(new AiStreamHandler(session, eventPublisher));
     }

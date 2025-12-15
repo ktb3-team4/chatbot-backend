@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -29,6 +30,9 @@ public class MessageReadHandler {
     private final SocketIOServer socketIOServer;
     private final MessageReadStatusService messageReadStatusService;
     private final ObjectMapper objectMapper;
+
+    @Value("${chatapp.read-status.max-ids-per-request:200}")
+    private int maxIdsPerRequest;
 
     @Qualifier("chatWorkerExecutor")
     private final ThreadPoolTaskExecutor chatWorkerExecutor;
@@ -54,10 +58,20 @@ public class MessageReadHandler {
 
     private void processMarkAsRead(MarkAsReadRequest data, String userId) {
         try {
-            List<String> messageIds = data.getMessageIds().stream()
+            List<String> filteredIds = data.getMessageIds().stream()
                     .filter(id -> id != null && !id.isBlank())
                     .distinct()
                     .toList();
+
+            int cap = Math.max(1, maxIdsPerRequest);
+            List<String> messageIds = filteredIds.size() > cap
+                    ? filteredIds.subList(0, cap)
+                    : filteredIds;
+
+            if (filteredIds.size() > cap) {
+                log.warn("MarkAsRead truncated: requested={}, capped={} for user={} room={}",
+                        filteredIds.size(), cap, userId, data.getRoomId());
+            }
 
             if (messageIds.isEmpty()) {
                 return;

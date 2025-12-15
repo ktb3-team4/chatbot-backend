@@ -7,12 +7,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 public class InMemoryReadTracker {
 
     private final Map<String, Map<String, Set<String>>> roomReads = new ConcurrentHashMap<>();
+    private final AtomicLong pendingEntries = new AtomicLong(0);
+    private final long maxPendingEntries;
+
+    public InMemoryReadTracker(@Value("${chatapp.read-status.max-pending-entries:50000}") long maxPendingEntries) {
+        this.maxPendingEntries = Math.max(1000, maxPendingEntries);
+    }
 
     public void update(String roomId, List<String> messageIds, String userId) {
         if (roomId == null || roomId.isBlank() || messageIds == null || messageIds.isEmpty() || userId == null) {
@@ -24,7 +34,18 @@ public class InMemoryReadTracker {
             if (messageId == null || messageId.isBlank()) {
                 continue;
             }
-            messageMap.computeIfAbsent(messageId, k -> ConcurrentHashMap.newKeySet()).add(userId);
+            Set<String> readers = messageMap.computeIfAbsent(messageId, k -> ConcurrentHashMap.newKeySet());
+            boolean added = readers.add(userId);
+            if (added) {
+                long current = pendingEntries.incrementAndGet();
+                if (current > maxPendingEntries) {
+                    readers.remove(userId);
+                    pendingEntries.decrementAndGet();
+                    log.warn("Read tracker at capacity ({}). Dropping new entry room={} message={} user={}",
+                            maxPendingEntries, roomId, messageId, userId);
+                    break;
+                }
+            }
         }
     }
 
@@ -34,6 +55,7 @@ public class InMemoryReadTracker {
         }
 
         Map<String, Map<String, Set<String>>> batch = new HashMap<>();
+        long removedCount = 0;
 
         synchronized (roomReads) {
             int remaining = maxMessagesTotal;
@@ -46,8 +68,10 @@ public class InMemoryReadTracker {
                 var msgIter = messageMap.entrySet().iterator();
                 while (msgIter.hasNext() && remaining > 0) {
                     var msgEntry = msgIter.next();
-                    pickedMessages.put(msgEntry.getKey(), new HashSet<>(msgEntry.getValue()));
+                    Set<String> readers = msgEntry.getValue();
+                    pickedMessages.put(msgEntry.getKey(), new HashSet<>(readers));
                     msgIter.remove();
+                    removedCount += readers.size();
                     remaining--;
                 }
 
@@ -58,6 +82,13 @@ public class InMemoryReadTracker {
                 if (messageMap.isEmpty()) {
                     roomIter.remove();
                 }
+            }
+        }
+
+        if (removedCount > 0) {
+            long after = pendingEntries.addAndGet(-removedCount);
+            if (after < 0) {
+                pendingEntries.set(0);
             }
         }
 

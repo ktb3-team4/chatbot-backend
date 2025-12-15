@@ -138,10 +138,11 @@ public class RoomService {
             }
         }
 
-        Map<String, User> userMap = allUserIds.stream()
-                .map(userService::findUserById) // ⬅️ 캐싱된 서비스 메서드 사용
-                .filter(Optional::isPresent)
-                .map(Optional::get)
+        Map<String, User> userMap = allUserIds.isEmpty()
+                ? Collections.emptyMap()
+                : userRepository.findAllById(allUserIds).stream()
+                .filter(Objects::nonNull)
+                .filter(u -> u.getId() != null)
                 .collect(Collectors.toMap(User::getId, user -> user, (u1, u2) -> u1));
 
         // 맵을 사용하여 매핑
@@ -239,16 +240,26 @@ public class RoomService {
         return savedRoom;
     }
     private RoomResponse mapToGenericRoomResponse(Room room) {
-        User creator = null;
+        Set<String> userIds = new HashSet<>();
         if (room.getCreator() != null) {
-            creator = userRepository.findById(room.getCreator()).orElse(null);
+            userIds.add(room.getCreator());
+        }
+        if (room.getParticipantIds() != null) {
+            userIds.addAll(room.getParticipantIds());
         }
 
-        // 참가자 목록 일괄 조회
+        Map<String, User> userMap = userIds.isEmpty()
+                ? Collections.emptyMap()
+                : userRepository.findAllById(userIds).stream()
+                .filter(Objects::nonNull)
+                .filter(u -> u.getId() != null)
+                .collect(Collectors.toMap(User::getId, u -> u, (u1, u2) -> u1));
+
+        User creator = userMap.get(room.getCreator());
+
         List<User> participants = room.getParticipantIds().stream()
-                .map(userService::findUserById)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
+                .map(userMap::get)
+                .filter(Objects::nonNull)
                 .toList();
 
         return RoomResponse.builder()
