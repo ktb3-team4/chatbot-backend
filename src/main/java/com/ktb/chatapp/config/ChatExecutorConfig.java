@@ -9,12 +9,14 @@ public class ChatExecutorConfig {
 
     @Bean("chatWorkerExecutor")
     public ThreadPoolTaskExecutor chatWorkerExecutor() {
-        int cores = Runtime.getRuntime().availableProcessors();
+        int cores = Math.max(1, Runtime.getRuntime().availableProcessors());
+        int corePool = Math.max(2, cores * 2);
+        int maxPool = Math.max(corePool, cores * 3);
 
         ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
-        ex.setCorePoolSize(cores * 4);
-        ex.setMaxPoolSize(cores * 8);
-        ex.setQueueCapacity(2_000);
+        ex.setCorePoolSize(corePool);
+        ex.setMaxPoolSize(maxPool);
+        ex.setQueueCapacity(500);
         ex.setThreadNamePrefix("chat-worker-");
         ex.setAllowCoreThreadTimeOut(true);
         ex.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
@@ -24,12 +26,14 @@ public class ChatExecutorConfig {
 
     @Bean("chatPersistenceExecutor")
     public ThreadPoolTaskExecutor chatPersistenceExecutor() {
-        int cores = Runtime.getRuntime().availableProcessors();
+        int cores = Math.max(1, Runtime.getRuntime().availableProcessors());
+        int corePool = Math.max(2, cores * 2);
+        int maxPool = Math.max(corePool, cores * 3);
 
         ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
-        ex.setCorePoolSize(cores * 4);
-        ex.setMaxPoolSize(cores * 8);
-        ex.setQueueCapacity(2_000);
+        ex.setCorePoolSize(corePool);
+        ex.setMaxPoolSize(maxPool);
+        ex.setQueueCapacity(500);
         ex.setThreadNamePrefix("chat-persist-");
         ex.setAllowCoreThreadTimeOut(true);
         ex.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());

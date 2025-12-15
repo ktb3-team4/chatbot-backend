@@ -59,6 +59,8 @@ public class ChatMessageHandler {
 
     @Value("${chatapp.banned-word.max-length:2000}")
     private int bannedWordMaxLength;
+    @Value("${chatapp.rate-limit.messages-per-minute:120}")
+    private int messagesPerMinute;
 
     @Qualifier("chatWorkerExecutor")
     private final ThreadPoolTaskExecutor chatWorkerExecutor;
@@ -99,7 +101,7 @@ public class ChatMessageHandler {
                 return;
             }
 
-            RateLimitCheckResult rateLimitResult = rateLimitService.checkRateLimit(socketUser.id(), 500000, Duration.ofMinutes(1));
+            RateLimitCheckResult rateLimitResult = rateLimitService.checkRateLimit(socketUser.id(), messagesPerMinute, Duration.ofMinutes(1));
             if (!rateLimitResult.allowed()) {
                 recordError("rate_limit_exceeded");
                 client.sendEvent(ERROR, Map.of(
