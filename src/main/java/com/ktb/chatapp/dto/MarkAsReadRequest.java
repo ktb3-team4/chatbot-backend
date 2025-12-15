@@ -7,4 +7,5 @@ import java.util.List;
 @Data
 public class MarkAsReadRequest {
     private List<String> messageIds;
+    private String roomId;
 }
