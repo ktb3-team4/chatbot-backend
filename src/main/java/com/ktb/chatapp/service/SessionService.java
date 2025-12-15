@@ -93,18 +93,18 @@ public class SessionService {
             Session session = sessionRedisStore.findBySessionId(sessionId).orElse(null);
 
             if (session == null) {
-                log.warn("No session found for sessionId: {}", sessionId);
+                log.debug("No session found for sessionId: {}", sessionId);
                 return SessionValidationResult.invalid("INVALID_SESSION", "세션을 찾을 수 없습니다.");
             }
 
             if (!userId.equals(session.getUserId())) {
-                log.warn("User ID mismatch for sessionId: {}. Provided: {}, Expected: {}", sessionId, userId, session.getUserId());
+                log.debug("User ID mismatch for sessionId: {}. Provided: {}, Expected: {}", sessionId, userId, session.getUserId());
                 return SessionValidationResult.invalid("INVALID_SESSION", "잘못된 사용자 ID입니다.");
             }
 
             long now = Instant.now().toEpochMilli();
             if (now - session.getLastActivity() > SESSION_TIMEOUT) {
-                log.warn("Session timed out for userId: {}, sessionId: {}", userId, sessionId);
+                log.debug("Session timed out for userId: {}, sessionId: {}", userId, sessionId);
                 removeSession(userId, sessionId);
                 return SessionValidationResult.invalid("SESSION_EXPIRED", "세션이 만료되었습니다.");
             }

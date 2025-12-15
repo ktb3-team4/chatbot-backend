@@ -59,7 +59,10 @@ public class RoomLeaveHandler {
         String userId = getUserId(client);
 
         if (userId == null) {
-            client.sendEvent(ERROR, Map.of("message", "Unauthorized"));
+            return;
+        }
+
+        if (roomId == null || roomId.isBlank()) {
             return;
         }
 
@@ -100,15 +103,18 @@ public class RoomLeaveHandler {
             sendSystemMessage(roomId, userName + "님이 퇴장하였습니다.");
             broadcastParticipantList(roomId);
             socketIOServer.getRoomOperations(roomId)
-                    .sendEvent(USER_LEFT, Map.of(
-                            "userId", userId,
-                            "userName", userName
-                    ));
+                    .sendEvent(USER_LEFT, createUserLeftPayload(userId, userName));
 
         } catch (Exception e) {
             log.error("Error processing leaveRoom", e);
-            client.sendEvent(ERROR, Map.of("message", "채팅방 퇴장 중 오류가 발생했습니다."));
         }
+    }
+
+    private Map<String, String> createUserLeftPayload(String userId, String userName) {
+        Map<String, String> payload = new HashMap<>();
+        payload.put("userId", userId);
+        payload.put("userName", userName);
+        return payload;
     }
 
 
